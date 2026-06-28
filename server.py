@@ -46,6 +46,7 @@ from monthly_close_lib import (  # noqa: E402
     REPORT_SUBDIRS,
     REPORTS_ROOT,
     WORKING,
+    UpdatePlanItemRecalculateError,
     act_horizon_periods,
     apply_keywords_file,
     close_period,
@@ -61,6 +62,7 @@ from monthly_close_lib import (  # noqa: E402
     resolve_budget_version_id,
     run_derive,
     run_imports,
+    update_plan_item,
     upsert_expense_project,
     verify_period,
 )
@@ -471,6 +473,37 @@ def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.Text
     if not isinstance(project, dict):
         raise ValueError("project must be an object")
     result = upsert_expense_project(api, project)
+    return _json_text({"ok": True, "profile": profile, "base": base, **result})
+
+
+def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    if "amount" not in arguments:
+        raise ValueError("amount is required")
+    plan_item_id = arguments.get("plan_item_id")
+    period_raw = arguments.get("period")
+    period = parse_period(str(period_raw)) if period_raw else None
+    try:
+        result = update_plan_item(
+            api,
+            arguments["amount"],
+            plan_item_id=str(plan_item_id) if plan_item_id else None,
+            period=period,
+            article=arguments.get("article"),
+            budget_item_id=arguments.get("budget_item_id"),
+            recalculate=bool(arguments.get("recalculate", True)),
+        )
+    except UpdatePlanItemRecalculateError as exc:
+        return _json_text(
+            {
+                "ok": False,
+                "error": str(exc),
+                "profile": profile,
+                "base": base,
+                **exc.context,
+            },
+        )
     return _json_text({"ok": True, "profile": profile, "base": base, **result})
 
 
@@ -906,6 +939,31 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="update_plan_item",
+            description=(
+                "Изменить сумму plan-item (PUT /budget/plan-items). "
+                "Resolve по plan_item_id или article/budget_item_id + period. "
+                "Default recalculate=true после PUT."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "plan_item_id": {"type": "string", "description": "UUID plan-item (приоритет над resolve)"},
+                    "article": {"type": "string", "description": "Подстрока имени статьи"},
+                    "budget_item_id": {"type": "string", "description": "UUID статьи"},
+                    "period": {"type": "string", "description": "YYYY-MM для resolve по article"},
+                    "amount": {"type": ["string", "number"], "description": "Новая сумма (>= 0)"},
+                    "recalculate": {
+                        "type": "boolean",
+                        "description": "POST projections/recalculate после PUT (default true)",
+                    },
+                },
+                "required": ["amount"],
+            },
+        ),
+        types.Tool(
             name="delete_transactions_by_filter",
             description=(
                 "Maintenance: подсчёт или удаление транзакций по фильтру (BLG-084). "
@@ -956,6 +1014,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "household_base_share": _handle_household_base_share,
         "put_transaction_overrides": _handle_put_transaction_overrides,
         "upsert_expense_project": _handle_upsert_expense_project,
+        "update_plan_item": _handle_update_plan_item,
         "query_transactions": _handle_query_transactions,
         "delete_transactions_by_filter": _handle_delete_transactions_by_filter,
     }

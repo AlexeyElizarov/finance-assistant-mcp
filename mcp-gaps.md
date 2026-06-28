@@ -25,6 +25,7 @@
 | `apply_keywords` | Применение keywords (категории, статьи, проекты) |
 | `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓) |
 | `upsert_expense_project` | Создать или полностью заменить проект расходов (**FIN-107** ✓) |
+| `update_plan_item` | Изменить сумму plan-item + recalculate проекции (**FIN-108** ✓) |
 
 ---
 

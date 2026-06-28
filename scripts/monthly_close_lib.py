@@ -1038,3 +1038,314 @@ def close_period(
             "close_phase": close_phase,
         },
     )
+
+
+_PLAN_ITEM_PUT_KEYS = frozenset(
+    {
+        "id",
+        "budget_version_id",
+        "budget_item_id",
+        "planning_type",
+        "amount",
+        "currency",
+        "status",
+        "periodicity",
+        "start_date",
+        "end_date",
+        "forecast_method",
+    },
+)
+
+
+def plan_item_put_body(plan_item: dict[str, Any], amount: str) -> dict[str, Any]:
+    """
+    Build PUT body from a plan item, dropping projection-page enrichments.
+
+    :param plan_item: Source row (GET plan-item or projection-period-page)
+    :param amount: Normalized amount string
+    :return: Body accepted by ``PUT /budget/plan-items/{id}``
+    """
+    body = {k: plan_item[k] for k in _PLAN_ITEM_PUT_KEYS if k in plan_item}
+    body["amount"] = amount
+    body["id"] = str(plan_item["id"])
+    return body
+
+
+class UpdatePlanItemRecalculateError(RuntimeError):
+    """
+    Recalculate failed after successful plan-item PUT (FIN-108 D-13).
+
+    :param message: Error text
+    :param context: Successful PUT fields for ops retry
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+def normalize_plan_amount(raw: Any) -> str:
+    """
+    Normalize plan amount to a non-negative decimal string.
+
+    :param raw: Amount from tool args
+    :return: Decimal string (two fractional digits)
+    :raises ValueError: When missing, invalid, or negative
+    """
+    if raw is None:
+        raise ValueError("amount is required")
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        if isinstance(raw, str):
+            amt = Decimal(raw.strip())
+        else:
+            amt = Decimal(str(raw))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"amount must be a decimal number, got {raw!r}") from exc
+    if amt < 0:
+        raise ValueError(f"amount must be non-negative, got {amt}")
+    return format(amt.quantize(Decimal("0.01")), "f")
+
+
+def resolve_act_version_id(api: ApiClient) -> str:
+    """
+    Return the single ACT budget version id.
+
+    :param api: API client
+    :return: Version UUID
+    :raises RuntimeError: When ACT count is not exactly one
+    """
+    data = api.get_json("/api/v1/budget/versions")
+    act = [v for v in data.get("budget_versions", []) if v.get("status") == "ACT"]
+    if len(act) != 1:
+        raise RuntimeError(f"expected exactly one ACT budget version, found {len(act)}")
+    return str(act[0]["id"])
+
+
+def fetch_budget_version(api: ApiClient, version_id: str) -> dict[str, Any]:
+    """
+    Load one budget version.
+
+    :param api: API client
+    :param version_id: Version UUID
+    :return: Version body
+    """
+    return api.get_json(f"/api/v1/budget/versions/{version_id}")
+
+
+def assert_version_mutable(
+    *,
+    version: dict[str, Any] | None = None,
+    can_mutate: bool | None = None,
+) -> None:
+    """
+    Reject mutation when version is ARC or ``can_mutate`` is false (FIN-108 D-09b).
+
+    Either signal is sufficient; they are checked independently.
+
+    :param version: Optional version dict from GET
+    :param can_mutate: Optional flag from projection-period-page
+    :raises RuntimeError: When version cannot be mutated
+    """
+    if version is not None and version.get("status") == "ARC":
+        raise RuntimeError(
+            f"budget version {version.get('id')} has status ARC (immutable)",
+        )
+    if can_mutate is False:
+        raise RuntimeError("budget version is not mutable (can_mutate=false)")
+
+
+def resolve_budget_item_id_for_plan(
+    api: ApiClient,
+    article: str | None,
+    budget_item_id: str | None,
+) -> tuple[str, str]:
+    """
+    Resolve article label to budget item id (same rules as ``query_plan_fact``).
+
+    :param api: API client
+    :param article: Substring of article name
+    :param budget_item_id: Explicit UUID
+    :return: Tuple of item id and display name
+    """
+    if budget_item_id:
+        item = api.get_json(f"/api/v1/budget/items/{budget_item_id}")
+        return budget_item_id, str(item.get("name", budget_item_id))
+    if not article:
+        raise ValueError("article or budget_item_id required for resolve")
+    data = api.get_json("/api/v1/budget/items")
+    needle = article.casefold()
+    matches = [
+        item
+        for item in data.get("budget_items", [])
+        if needle in str(item.get("name", "")).casefold()
+    ]
+    if not matches:
+        raise RuntimeError(f"budget item not found for article {article!r}")
+    if len(matches) > 1:
+        names = ", ".join(str(m.get("name")) for m in matches)
+        raise RuntimeError(f"ambiguous article {article!r}: {names}")
+    item = matches[0]
+    return str(item["id"]), str(item["name"])
+
+
+def resolve_plan_item_for_update(
+    api: ApiClient,
+    *,
+    plan_item_id: str | None,
+    period: Period | None,
+    article: str | None,
+    budget_item_id: str | None,
+) -> tuple[dict[str, Any], str]:
+    """
+    Resolve one plan item and article name for update (FIN-108 D-11).
+
+    :param api: API client
+    :param plan_item_id: Direct plan-item UUID (takes precedence)
+    :param period: Month for article resolve
+    :param article: Article substring
+    :param budget_item_id: Article UUID
+    :return: Plan item dict and article display name
+    """
+    if plan_item_id:
+        plan_item = api.get_json(f"/api/v1/budget/plan-items/{plan_item_id}")
+        item_id = str(plan_item["budget_item_id"])
+        item = api.get_json(f"/api/v1/budget/items/{item_id}")
+        return plan_item, str(item.get("name", item_id))
+
+    if period is None or (not article and not budget_item_id):
+        raise ValueError(
+            "provide plan_item_id or (period and article or budget_item_id)",
+        )
+
+    item_id, article_name = resolve_budget_item_id_for_plan(api, article, budget_item_id)
+    act_vid = resolve_act_version_id(api)
+    query = (
+        f"/api/v1/budget/projection-period-page"
+        f"?budget_version_id={act_vid}&period={period.month_start}"
+    )
+    page = api.get_json(query)
+    assert_version_mutable(can_mutate=page.get("can_mutate"))
+    matched = [
+        row
+        for row in page.get("plan_items", [])
+        if str(row.get("budget_item_id")) == item_id
+    ]
+    if not matched:
+        raise RuntimeError(
+            f"no plan item for article {article_name!r} in period {period.yyyy_mm}",
+        )
+    if len(matched) > 1:
+        ids = ", ".join(str(row.get("id")) for row in matched)
+        raise RuntimeError(
+            f"ambiguous plan items for {article_name!r} in {period.yyyy_mm}: {ids}",
+        )
+    return matched[0], article_name
+
+
+def projection_rows_count(body: dict[str, Any]) -> int:
+    """
+    Extract recalculated projection row count from API response (FIN-108 D-15).
+
+    :param body: POST ``/budget/projections/recalculate`` response
+    :return: Row count
+    """
+    if "updated_count" in body:
+        return int(body["updated_count"])
+    rows = body.get("budget_projections")
+    if rows is None:
+        rows = body.get("projections")
+    if not isinstance(rows, list):
+        return 0
+    return len(rows)
+
+
+def recalculate_budget_projections(api: ApiClient, budget_version_id: str) -> dict[str, Any]:
+    """
+    Rebuild projections for one budget version.
+
+    :param api: API client
+    :param budget_version_id: Version UUID
+    :return: Full recalculate response body
+    """
+    status, body = api.request(
+        "POST",
+        "/api/v1/budget/projections/recalculate",
+        data={"budget_version_id": budget_version_id},
+    )
+    if status != 200 or not isinstance(body, dict):
+        raise RuntimeError(f"POST projections/recalculate -> {status}: {body}")
+    return body
+
+
+def update_plan_item(
+    api: ApiClient,
+    amount: Any,
+    *,
+    plan_item_id: str | None = None,
+    period: Period | None = None,
+    article: str | None = None,
+    budget_item_id: str | None = None,
+    recalculate: bool = True,
+) -> dict[str, Any]:
+    """
+    Update one plan item amount and optionally recalculate projections (FIN-108).
+
+    :param api: API client
+    :param amount: New plan amount (non-negative; zero allowed)
+    :param plan_item_id: Plan-item UUID (precedence over resolve fields)
+    :param period: Month for article resolve
+    :param article: Article substring
+    :param budget_item_id: Article UUID
+    :param recalculate: Run projection recalculate after PUT
+    :return: Tool result fields
+    :raises UpdatePlanItemRecalculateError: PUT succeeded, recalculate failed
+    """
+    amount_after = normalize_plan_amount(amount)
+    plan_item, article_name = resolve_plan_item_for_update(
+        api,
+        plan_item_id=plan_item_id,
+        period=period,
+        article=article,
+        budget_item_id=budget_item_id,
+    )
+    version_id = str(plan_item["budget_version_id"])
+    version = fetch_budget_version(api, version_id)
+    assert_version_mutable(version=version)
+
+    plan_id = str(plan_item["id"])
+    amount_before = str(plan_item.get("amount", ""))
+    put_body = plan_item_put_body(plan_item, amount_after)
+
+    status, updated = api.request(
+        "PUT",
+        f"/api/v1/budget/plan-items/{plan_id}",
+        data=put_body,
+    )
+    if status != 200 or not isinstance(updated, dict):
+        raise RuntimeError(f"PUT plan-items/{plan_id} -> {status}: {updated}")
+
+    base_result: dict[str, Any] = {
+        "plan_item_id": plan_id,
+        "budget_version_id": version_id,
+        "budget_item_id": str(plan_item["budget_item_id"]),
+        "article": article_name,
+        "amount_before": amount_before,
+        "amount_after": amount_after,
+        "plan_item": updated,
+    }
+
+    if not recalculate:
+        return base_result
+
+    try:
+        recalc_body = recalculate_budget_projections(api, version_id)
+    except RuntimeError as exc:
+        raise UpdatePlanItemRecalculateError(str(exc), base_result) from exc
+
+    base_result["recalculate"] = {
+        "budget_version_id": version_id,
+        "projection_rows": projection_rows_count(recalc_body),
+    }
+    return base_result
