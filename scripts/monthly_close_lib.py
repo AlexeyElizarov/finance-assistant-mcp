@@ -323,15 +323,94 @@ def fetch_reconciliation(
     :param period: Target month
     :return: ``status``, ``methodology_status``, ``close_phase`` from API
     """
-    body = api.get_json(
-        f"/api/v1/budget/reconciliation?budget_version_id={budget_version_id}"
-        f"&period={period.month_start}"
-    )
+    body = fetch_reconciliation_full(api, budget_version_id, period)
     return {
         "status": str(body.get("status") or "open"),
         "methodology_status": body.get("methodology_status"),
         "close_phase": body.get("close_phase"),
     }
+
+
+def fetch_reconciliation_full(
+    api: ApiClient,
+    budget_version_id: str,
+    period: Period,
+) -> dict[str, Any]:
+    """
+    Return full reconciliation payload for a calendar month.
+
+    :param api: API client
+    :param budget_version_id: Budget version UUID
+    :param period: Target month
+    :return: Full API reconciliation body
+    """
+    return api.get_json(
+        f"/api/v1/budget/reconciliation?budget_version_id={budget_version_id}"
+        f"&period={period.month_start}"
+    )
+
+
+def put_transaction_overrides(
+    api: ApiClient,
+    budget_version_id: str,
+    period: Period,
+    overrides: dict[str, str],
+    *,
+    merge: bool = True,
+) -> dict[str, Any]:
+    """
+    PUT reconciliation transaction overrides for one month.
+
+    :param api: API client
+    :param budget_version_id: Budget version UUID
+    :param period: Target month
+    :param overrides: ``transaction_key`` → ``budget_item_id``
+    :param merge: Merge with existing overrides when true
+    :return: Updated reconciliation body
+    """
+    existing = fetch_reconciliation_full(api, budget_version_id, period)
+    current = dict(existing.get("transaction_overrides") or {})
+    if merge:
+        current.update(overrides)
+    else:
+        current = dict(overrides)
+    status, body = api.request(
+        "PUT",
+        "/api/v1/budget/reconciliation",
+        data={
+            "budget_version_id": budget_version_id,
+            "period": period.month_start,
+            "transaction_overrides": current,
+        },
+    )
+    if status != 200:
+        raise RuntimeError(f"PUT reconciliation -> {status}: {body}")
+    if not isinstance(body, dict):
+        raise RuntimeError(f"PUT reconciliation unexpected body: {body!r}")
+    return body
+
+
+def upsert_expense_project(api: ApiClient, project: dict[str, Any]) -> dict[str, Any]:
+    """
+    Create or replace one expense project (``projects.json`` via API).
+
+    :param api: API client
+    :param project: Project body with ``id``, ``description``, ``keywords``, dates
+    :return: Project record from API
+    """
+    project_id = str(project["id"])
+    existing = {p["id"] for p in api.get_json("/api/v1/projects").get("projects", [])}
+    if project_id in existing:
+        status, body = api.request("PUT", f"/api/v1/projects/{project_id}", data=project)
+        action = "updated"
+    else:
+        status, body = api.request("POST", "/api/v1/projects", data=project)
+        action = "created"
+    if status not in (200, 201):
+        raise RuntimeError(f"upsert project {project_id} -> {status}: {body}")
+    if not isinstance(body, dict):
+        raise RuntimeError(f"upsert project unexpected body: {body!r}")
+    return {"action": action, "project": body}
 
 
 def reconciliation_status(api: ApiClient, budget_version_id: str, period: Period) -> str:

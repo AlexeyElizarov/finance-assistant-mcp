@@ -23,6 +23,8 @@
 | `query_transactions` | Выборка транзакций, group-by month |
 | `delete_transactions_by_filter` | Maintenance delete по фильтру (**BLG-084** ✓) |
 | `apply_keywords` | Применение keywords (категории, статьи, проекты) |
+| `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓) |
+| `upsert_expense_project` | Создать или полностью заменить проект расходов (**FIN-107** ✓) |
 
 ---
 

@@ -55,11 +55,13 @@ from monthly_close_lib import (  # noqa: E402
     mc_reopen_neighbor_periods,
     parse_period,
     period_status_report,
+    put_transaction_overrides,
     reopen_closed_periods,
     reopen_period,
     resolve_budget_version_id,
     run_derive,
     run_imports,
+    upsert_expense_project,
     verify_period,
 )
 
@@ -434,6 +436,42 @@ def _handle_household_base_share(arguments: dict[str, Any]) -> list[types.TextCo
         mapping_path=arguments.get("mapping_path"),
     )
     return _json_text(payload)
+
+
+def _handle_put_transaction_overrides(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    period = parse_period(str(arguments["period"]))
+    vid = resolve_budget_version_id(api, period)
+    raw_overrides = arguments.get("overrides") or {}
+    if not isinstance(raw_overrides, dict) or not raw_overrides:
+        raise ValueError("overrides must be a non-empty object {transaction_key: budget_item_id}")
+    overrides = {str(k): str(v) for k, v in raw_overrides.items()}
+    merge = bool(arguments.get("merge", True))
+    body = put_transaction_overrides(api, vid, period, overrides, merge=merge)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "profile": profile,
+        "base": base,
+        "period": period.yyyy_mm,
+        "budget_version_id": vid,
+        "overrides_applied": overrides,
+        "merge": merge,
+        "reconciliation": body,
+    }
+    if arguments.get("derive", True):
+        payload["derive"] = run_derive(api, period)
+    return _json_text(payload)
+
+
+def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    project = arguments.get("project")
+    if not isinstance(project, dict):
+        raise ValueError("project must be an object")
+    result = upsert_expense_project(api, project)
+    return _json_text({"ok": True, "profile": profile, "base": base, **result})
 
 
 def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -824,6 +862,50 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="put_transaction_overrides",
+            description=(
+                "PUT reconciliation overrides: transaction_key → budget_item_id для месяца. "
+                "Опционально derive после записи (default true)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {"type": "string", "description": "YYYY-MM"},
+                    "overrides": {
+                        "type": "object",
+                        "description": "transaction_key → budget_item_id",
+                    },
+                    "merge": {
+                        "type": "boolean",
+                        "description": "Merge with existing overrides (default true). false = destructive full replace of persisted map",
+                    },
+                    "derive": {
+                        "type": "boolean",
+                        "description": "Run derive after PUT (default true)",
+                    },
+                },
+                "required": ["period", "overrides"],
+            },
+        ),
+        types.Tool(
+            name="upsert_expense_project",
+            description="Создать или полностью заменить проект расходов (POST/PUT /api/v1/projects; full replace, no partial update).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "project": {
+                        "type": "object",
+                        "description": "id, description, keywords, valid_from, valid_to",
+                    },
+                },
+                "required": ["project"],
+            },
+        ),
+        types.Tool(
             name="delete_transactions_by_filter",
             description=(
                 "Maintenance: подсчёт или удаление транзакций по фильтру (BLG-084). "
@@ -872,6 +954,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "fix_month": _handle_process_month,  # deprecated alias
         "query_plan_fact": _handle_query_plan_fact,
         "household_base_share": _handle_household_base_share,
+        "put_transaction_overrides": _handle_put_transaction_overrides,
+        "upsert_expense_project": _handle_upsert_expense_project,
         "query_transactions": _handle_query_transactions,
         "delete_transactions_by_filter": _handle_delete_transactions_by_filter,
     }
