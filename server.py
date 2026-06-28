@@ -66,6 +66,7 @@ from monthly_close_lib import (  # noqa: E402
 _query_plan_fact = _load_script_module("query_plan_fact", "query-plan-fact.py")
 _query_transactions = _load_script_module("query_transactions", "query-transactions.py")
 _delete_by_filter = _load_script_module("delete_by_filter", "delete-by-filter.py")
+_household_base_share = _load_script_module("household_base_share", "household_base_share.py")
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
 fetch_month_row = _query_plan_fact.fetch_month_row
@@ -76,6 +77,7 @@ fetch_rows = _query_transactions.fetch_rows
 month_key = _query_transactions.month_key
 build_delete_by_filter_payload = _delete_by_filter.build_payload
 run_delete_by_filter = _delete_by_filter.run_delete_by_filter
+compute_household_base_share = _household_base_share.compute_household_base_share
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
@@ -416,6 +418,24 @@ def _handle_query_plan_fact(arguments: dict[str, Any]) -> list[types.TextContent
     return _json_text(payload)
 
 
+def _handle_household_base_share(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    period = str(arguments["period"])
+    budget_version_id = str(
+        arguments.get("budget_version_id") or active_budget_version_id(api)
+    )
+    payload = compute_household_base_share(
+        api,
+        profile=profile,
+        base=base,
+        period=period,
+        budget_version_id=budget_version_id,
+        mapping_path=arguments.get("mapping_path"),
+    )
+    return _json_text(payload)
+
+
 def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
@@ -752,6 +772,31 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="household_base_share",
+            description=(
+                "Базовая доля личных фондов (FIN-103): контуры household income, "
+                "professional, shared fund, savings → free_remainder и base_share "
+                "на партнёра. Interim mapping JSON; probe FIN-102 API при наличии."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {
+                        "type": "string",
+                        "description": "YYYY-MM — месяц базовой доли",
+                    },
+                    "budget_version_id": {"type": "string"},
+                    "mapping_path": {
+                        "type": "string",
+                        "description": "Override пути к household-contour-mapping JSON",
+                    },
+                },
+                "required": ["period"],
+            },
+        ),
+        types.Tool(
             name="query_transactions",
             description="Выборка транзакций (GET /transactions) с фильтрами и group-by month.",
             inputSchema={
@@ -826,6 +871,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "process_month": _handle_process_month,
         "fix_month": _handle_process_month,  # deprecated alias
         "query_plan_fact": _handle_query_plan_fact,
+        "household_base_share": _handle_household_base_share,
         "query_transactions": _handle_query_transactions,
         "delete_transactions_by_filter": _handle_delete_transactions_by_filter,
     }
@@ -845,7 +891,7 @@ async def run() -> None:
             write_stream,
             InitializationOptions(
                 server_name="finance-assistant",
-                server_version="1.4.0",
+                server_version="1.5.0",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

@@ -19,6 +19,7 @@
 | `process_month` | Reopen → import → derive → verify → optional close/PDF |
 | `reopen_periods` | Reopen closed периодов |
 | `query_plan_fact` | План/факт по статье |
+| `household_base_share` | Базовая доля личных фондов (FIN-103) |
 | `query_transactions` | Выборка транзакций, group-by month |
 | `delete_transactions_by_filter` | Maintenance delete по фильтру (**BLG-084** ✓) |
 | `apply_keywords` | Применение keywords (категории, статьи, проекты) |
@@ -31,7 +32,6 @@ Epic **BLG-093** ([FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101)
 
 | Tool (planned) | Jira | Назначение |
 | --- | --- | --- |
-| `household_base_share` | [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103) | Базовая доля личных фондов (фаза 1) |
 | `money_check_report` | [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104) | Еженедельный money check |
 | `personal_fund_carryover` | [FIN-105](https://alexeielizarov.atlassian.net/browse/FIN-105) | Перенос остатков после FINAL |
 
