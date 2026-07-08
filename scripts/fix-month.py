@@ -16,10 +16,12 @@ from monthly_close_lib import (
     REPORTS_ROOT,
     WORKING,
     apply_keywords_file,
+    c9999_close_guard_error,
     c9999_rows,
     close_period,
     connect_api,
     generate_reports,
+    keywords_file_effective,
     mc_affected_periods,
     parse_period,
     print_c9999_proposal,
@@ -29,6 +31,7 @@ from monthly_close_lib import (
     resolve_budget_version_id,
     run_derive,
     run_imports,
+    validate_process_month_c9999_acknowledged,
     verify_period,
 )
 
@@ -59,6 +62,12 @@ def run_fix(args: argparse.Namespace) -> int:
     }
 
     print(f"=== fix-month {profile} {period.yyyy_mm} @ {base} ===")
+
+    validate_process_month_c9999_acknowledged(
+        {"c9999_acknowledged": args.c9999_acknowledged},
+        args.close,
+        args.close_phase,
+    )
 
     if args.verify_only:
         verify = verify_period(api, period, vid)
@@ -95,9 +104,12 @@ def run_fix(args: argparse.Namespace) -> int:
             print("log:", log_path)
             return 1
 
+    keywords_effective = False
     if args.apply_keywords:
+        keywords_effective = keywords_file_effective(args.apply_keywords)
         added = apply_keywords_file(api, args.apply_keywords)
-        print(f"keywords added: {len(added)}")
+        print(f"keywords added: {len(added)} (effective={keywords_effective})")
+        log["steps"]["keywords_effective"] = keywords_effective
         log["steps"]["keywords_added"] = added
 
     log["steps"]["derive"] = run_derive(api, period)
@@ -109,14 +121,21 @@ def run_fix(args: argparse.Namespace) -> int:
     log["steps"]["readiness"] = verify["readiness"]
 
     c9999_count = int(verify["classification_summary"].get("expense_c9999_count") or 0)
-    rows: list[dict] = []
     if c9999_count > 0:
         rows = c9999_rows(api, period)
-    if rows:
-        print_c9999_proposal(rows)
-        log["steps"]["c9999_count"] = len(rows)
-        if not args.apply_keywords and args.close:
-            print("STOP: C9999 > 0 — keywords + --skip-import перед close", file=sys.stderr)
+        if rows:
+            print_c9999_proposal(rows)
+            log["steps"]["c9999_count"] = len(rows)
+
+    if args.close:
+        guard_error = c9999_close_guard_error(
+            expense_c9999_count=c9999_count,
+            close_phase=args.close_phase,
+            keywords_effective=keywords_effective,
+            c9999_acknowledged=args.c9999_acknowledged,
+        )
+        if guard_error:
+            print(f"STOP: {guard_error}", file=sys.stderr)
             log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
             return 1
 
@@ -133,6 +152,10 @@ def run_fix(args: argparse.Namespace) -> int:
         log["steps"]["close"] = {"status": "blocked", "reason": "readiness false"}
         log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
         return 1
+
+    if args.c9999_acknowledged and c9999_count > 0 and args.close_phase == "preliminary":
+        log["steps"]["c9999_acknowledged"] = True
+        log["steps"]["c9999_count"] = c9999_count
 
     close_status, close_body = close_period(
         api, vid, period, close_phase=args.close_phase
@@ -180,6 +203,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reopen", action="store_true", help="Reopen target month M")
     parser.add_argument("--skip-import", action="store_true")
     parser.add_argument("--apply-keywords", type=Path, metavar="FILE")
+    parser.add_argument(
+        "--c9999-acknowledged",
+        action="store_true",
+        help="Acknowledge retained C9999 misc (preliminary close only)",
+    )
     parser.add_argument(
         "--close",
         action="store_true",

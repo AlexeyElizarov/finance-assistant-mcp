@@ -46,25 +46,35 @@ from monthly_close_lib import (  # noqa: E402
     REPORT_SUBDIRS,
     REPORTS_ROOT,
     WORKING,
+    CreateBudgetItemPlanItemError,
+    CreateBudgetItemRecalculateError,
+    CreatePlanItemRecalculateError,
     UpdatePlanItemRecalculateError,
     act_horizon_periods,
     apply_keywords_file,
     close_period,
     connect_api,
+    c9999_close_guard_error,
     filter_horizon_periods,
     generate_reports,
+    keywords_file_effective,
     mc_reopen_neighbor_periods,
     parse_period,
+    prepare_process_month_orchestrator_flags,
     period_status_report,
+    PRESET_MONTHLY_CLOSE_PREPARE,
     put_transaction_overrides,
     reopen_closed_periods,
     reopen_period,
     resolve_budget_version_id,
     run_derive,
     run_imports,
+    create_budget_item,
+    create_plan_item,
     update_plan_item,
     upsert_expense_project,
     verify_period,
+    list_c9999_payload,
 )
 
 _query_plan_fact = _load_script_module("query_plan_fact", "query-plan-fact.py")
@@ -265,6 +275,14 @@ def _handle_reopen_periods(arguments: dict[str, Any]) -> list[types.TextContent]
     )
 
 
+def _handle_list_c9999(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    period = parse_period(str(arguments["period"]))
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_c9999_payload(api, period)
+    return _json_text({"ok": True, "profile": profile, "base": base, **payload})
+
+
 def _handle_verify_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     period = parse_period(str(arguments["period"]))
@@ -284,14 +302,16 @@ def _handle_verify_month(arguments: dict[str, Any]) -> list[types.TextContent]:
 def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     period = parse_period(str(arguments["period"]))
-    verify_only = bool(arguments.get("verify_only"))
-    reopen_flag = bool(arguments.get("reopen"))
-    reopen_neighbors = bool(arguments.get("reopen_neighbors"))
-    skip_import = bool(arguments.get("skip_import"))
-    close_flag = bool(arguments.get("close"))
-    close_phase = str(arguments.get("close_phase") or "final")
-    reports = bool(arguments.get("reports"))
-    apply_keywords = arguments.get("apply_keywords")
+    flags = prepare_process_month_orchestrator_flags(arguments)
+    verify_only = flags["verify_only"]
+    reopen_flag = flags["reopen"]
+    reopen_neighbors = flags["reopen_neighbors"]
+    skip_import = flags["skip_import"]
+    close_flag = flags["close"]
+    close_phase = flags["close_phase"]
+    reports = flags["reports"]
+    apply_keywords = flags["apply_keywords"]
+    c9999_acknowledged = flags["c9999_acknowledged"]
 
     if close_flag and close_phase not in CLOSE_PHASES:
         raise ValueError(f"close_phase must be one of {CLOSE_PHASES}")
@@ -331,8 +351,12 @@ def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
             log["steps"]["import_blocked"] = failed
             return _json_text({"ok": False, "log": log})
 
+    keywords_effective = False
     if apply_keywords:
-        added = apply_keywords_file(api, Path(str(apply_keywords)))
+        kw_path = Path(str(apply_keywords))
+        keywords_effective = keywords_file_effective(kw_path)
+        added = apply_keywords_file(api, kw_path)
+        log["steps"]["keywords_effective"] = keywords_effective
         log["steps"]["keywords_added"] = added
 
     log["steps"]["derive"] = run_derive(api, period)
@@ -340,14 +364,21 @@ def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     log["steps"]["verify"] = verify
 
     c9999_count = int(verify["classification_summary"].get("expense_c9999_count") or 0)
-    if c9999_count > 0 and close_flag and not apply_keywords:
-        return _json_text(
-            {
-                "ok": False,
-                "error": "C9999 > 0 — apply_keywords перед close",
-                "log": log,
-            }
+    if close_flag:
+        guard_error = c9999_close_guard_error(
+            expense_c9999_count=c9999_count,
+            close_phase=close_phase,
+            keywords_effective=keywords_effective,
+            c9999_acknowledged=c9999_acknowledged,
         )
+        if guard_error:
+            return _json_text(
+                {
+                    "ok": False,
+                    "error": guard_error,
+                    "log": log,
+                }
+            )
 
     if reports:
         out_dir = REPORTS_ROOT / REPORT_SUBDIRS[profile] / period.yyyy_mm
@@ -361,6 +392,10 @@ def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     if not verify["readiness"].get("ready"):
         log["steps"]["close"] = {"status": "blocked", "reason": "readiness false"}
         return _json_text({"ok": False, "log": log})
+
+    if c9999_acknowledged and c9999_count > 0 and close_phase == "preliminary":
+        log["steps"]["c9999_acknowledged"] = True
+        log["steps"]["c9999_count"] = c9999_count
 
     close_status, close_body = close_period(api, vid, period, close_phase=close_phase)
     log["steps"]["close"] = {
@@ -476,6 +511,54 @@ def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.Text
     return _json_text({"ok": True, "profile": profile, "base": base, **result})
 
 
+def _handle_create_budget_item(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    required = ("name", "flow_type", "operation_category_id", "amount", "start_period")
+    missing = [field for field in required if field not in arguments]
+    if missing:
+        raise ValueError(f"missing required fields: {', '.join(missing)}")
+    end_raw = arguments.get("end_period")
+    end_period = parse_period(str(end_raw)) if end_raw else None
+    try:
+        result = create_budget_item(
+            api,
+            name=str(arguments["name"]),
+            flow_type=str(arguments["flow_type"]),
+            operation_category_id=str(arguments["operation_category_id"]),
+            amount=arguments["amount"],
+            start_period=parse_period(str(arguments["start_period"])),
+            planning_type=str(arguments.get("planning_type") or "REG"),
+            keywords=list(arguments.get("keywords") or []),
+            item_status=str(arguments.get("item_status") or "ACT"),
+            currency=str(arguments.get("currency") or "EUR"),
+            periodicity=str(arguments.get("periodicity") or "M"),
+            end_period=end_period,
+            recalculate=bool(arguments.get("recalculate", True)),
+        )
+    except CreateBudgetItemPlanItemError as exc:
+        return _json_text(
+            {
+                "ok": False,
+                "error": str(exc),
+                "profile": profile,
+                "base": base,
+                **exc.context,
+            },
+        )
+    except CreateBudgetItemRecalculateError as exc:
+        return _json_text(
+            {
+                "ok": False,
+                "error": str(exc),
+                "profile": profile,
+                "base": base,
+                **exc.context,
+            },
+        )
+    return _json_text({"ok": True, "profile": profile, "base": base, **result})
+
+
 def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
@@ -484,6 +567,10 @@ def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextConten
     plan_item_id = arguments.get("plan_item_id")
     period_raw = arguments.get("period")
     period = parse_period(str(period_raw)) if period_raw else None
+    start_raw = arguments.get("start_period")
+    start_period = parse_period(str(start_raw)) if start_raw else None
+    end_raw = arguments.get("end_period")
+    end_period = parse_period(str(end_raw)) if end_raw else None
     try:
         result = update_plan_item(
             api,
@@ -492,9 +579,50 @@ def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextConten
             period=period,
             article=arguments.get("article"),
             budget_item_id=arguments.get("budget_item_id"),
+            start_period=start_period,
+            end_period=end_period,
             recalculate=bool(arguments.get("recalculate", True)),
         )
     except UpdatePlanItemRecalculateError as exc:
+        return _json_text(
+            {
+                "ok": False,
+                "error": str(exc),
+                "profile": profile,
+                "base": base,
+                **exc.context,
+            },
+        )
+    return _json_text({"ok": True, "profile": profile, "base": base, **result})
+
+
+def _handle_create_plan_item(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    required = ("amount", "start_period")
+    missing = [field for field in required if field not in arguments]
+    if missing:
+        raise ValueError(f"missing required fields: {', '.join(missing)}")
+    if not arguments.get("article") and not arguments.get("budget_item_id"):
+        raise ValueError("article or budget_item_id is required")
+    end_raw = arguments.get("end_period")
+    end_period = parse_period(str(end_raw)) if end_raw else None
+    try:
+        result = create_plan_item(
+            api,
+            arguments["amount"],
+            parse_period(str(arguments["start_period"])),
+            article=str(arguments["article"]) if arguments.get("article") else None,
+            budget_item_id=str(arguments["budget_item_id"])
+            if arguments.get("budget_item_id")
+            else None,
+            planning_type=str(arguments.get("planning_type") or "REG"),
+            currency=str(arguments.get("currency") or "EUR"),
+            periodicity=str(arguments.get("periodicity") or "M"),
+            end_period=end_period,
+            recalculate=bool(arguments.get("recalculate", True)),
+        )
+    except CreatePlanItemRecalculateError as exc:
         return _json_text(
             {
                 "ok": False,
@@ -768,6 +896,22 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="list_c9999",
+            description=(
+                "Список expense C9999 за месяц для c9999-proposal-policy "
+                "(drill-down; не verify и не override flow)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {"type": "string", "description": "YYYY-MM"},
+                },
+                "required": ["period"],
+            },
+        ),
+        types.Tool(
             name="verify_month",
             description=(
                 "Verify месяца: MC from_17th, classification-summary, readiness (без import/close)."
@@ -786,6 +930,7 @@ async def list_tools() -> list[types.Tool]:
             name="process_month",
             description=(
                 "Ops-оркестратор периода: reopen → import → derive → verify → optional close/PDF. "
+                "preset monthly_close_prepare — рекомендуемый prepare-workflow с PDF (FIN-31). "
                 "close=true только по явной команде пользователя."
             ),
             inputSchema={
@@ -794,6 +939,14 @@ async def list_tools() -> list[types.Tool]:
                     "profile": PROFILE_SCHEMA,
                     "base": BASE_SCHEMA,
                     "period": {"type": "string", "description": "YYYY-MM или YYYYMM"},
+                    "preset": {
+                        "type": "string",
+                        "enum": [PRESET_MONTHLY_CLOSE_PREPARE],
+                        "description": (
+                            "UX preset: reopen_neighbors + reopen + reports; "
+                            "explicit flags override preset defaults"
+                        ),
+                    },
                     "verify_only": {"type": "boolean"},
                     "reopen": {"type": "boolean"},
                     "reopen_neighbors": {
@@ -815,6 +968,13 @@ async def list_tools() -> list[types.Tool]:
                     "close_phase": {
                         "type": "string",
                         "enum": list(CLOSE_PHASES),
+                    },
+                    "c9999_acknowledged": {
+                        "type": "boolean",
+                        "description": (
+                            "Operator acknowledged retained C9999 misc expenses; "
+                            "only with close=true and close_phase=preliminary"
+                        ),
                     },
                     "reports": {"type": "boolean", "description": "Генерировать PDF отчёты"},
                 },
@@ -939,11 +1099,88 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="create_budget_item",
+            description=(
+                "Создать статью бюджета и REG plan-item в ACT-версии "
+                "(POST /budget/items + POST /budget/plan-items). "
+                "Default recalculate=true."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "name": {"type": "string", "description": "Имя статьи"},
+                    "flow_type": {"type": "string", "description": "EXP или INC"},
+                    "operation_category_id": {
+                        "type": "string",
+                        "description": "Код категории (напр. C0006)",
+                    },
+                    "amount": {"type": ["string", "number"], "description": "Сумма REG plan (>= 0)"},
+                    "start_period": {"type": "string", "description": "YYYY-MM — начало REG"},
+                    "end_period": {"type": "string", "description": "YYYY-MM — конец REG (опц.)"},
+                    "planning_type": {"type": "string", "description": "Только REG (default REG)"},
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Keywords статьи (пустой список допустим)",
+                    },
+                    "item_status": {
+                        "type": "string",
+                        "description": "budget_item.status (default ACT)",
+                    },
+                    "currency": {"type": "string", "description": "Валюта (default EUR)"},
+                    "periodicity": {"type": "string", "description": "REG periodicity (default M)"},
+                    "recalculate": {
+                        "type": "boolean",
+                        "description": "POST projections/recalculate (default true)",
+                    },
+                },
+                "required": [
+                    "name",
+                    "flow_type",
+                    "operation_category_id",
+                    "amount",
+                    "start_period",
+                ],
+            },
+        ),
+        types.Tool(
+            name="create_plan_item",
+            description=(
+                "POST REG plan-item на существующую статью в ACT-версии "
+                "(bounded / one-off annual fee). Default recalculate=true."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "article": {"type": "string", "description": "Подстрока имени статьи"},
+                    "budget_item_id": {"type": "string", "description": "UUID статьи"},
+                    "amount": {"type": ["string", "number"], "description": "Сумма REG (>= 0)"},
+                    "start_period": {"type": "string", "description": "YYYY-MM — начало REG"},
+                    "end_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — конец REG (ops: start=end для one-off)",
+                    },
+                    "planning_type": {"type": "string", "description": "Только REG (default REG)"},
+                    "currency": {"type": "string", "description": "Валюта (default EUR)"},
+                    "periodicity": {"type": "string", "description": "REG periodicity (default M)"},
+                    "recalculate": {
+                        "type": "boolean",
+                        "description": "POST projections/recalculate (default true)",
+                    },
+                },
+                "required": ["amount", "start_period"],
+            },
+        ),
+        types.Tool(
             name="update_plan_item",
             description=(
-                "Изменить сумму plan-item (PUT /budget/plan-items). "
-                "Resolve по plan_item_id или article/budget_item_id + period. "
-                "Default recalculate=true после PUT."
+                "Изменить plan-item: сумма и/или bounded horizon "
+                "(PUT /budget/plan-items). Resolve по plan_item_id или "
+                "article/budget_item_id + period. Default recalculate=true."
             ),
             inputSchema={
                 "type": "object",
@@ -955,6 +1192,8 @@ async def list_tools() -> list[types.Tool]:
                     "budget_item_id": {"type": "string", "description": "UUID статьи"},
                     "period": {"type": "string", "description": "YYYY-MM для resolve по article"},
                     "amount": {"type": ["string", "number"], "description": "Новая сумма (>= 0)"},
+                    "start_period": {"type": "string", "description": "YYYY-MM — новый start_date (опц.)"},
+                    "end_period": {"type": "string", "description": "YYYY-MM — новый end_date (опц.)"},
                     "recalculate": {
                         "type": "boolean",
                         "description": "POST projections/recalculate после PUT (default true)",
@@ -1007,6 +1246,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "list_period_statuses": _handle_list_period_statuses,
         "period_status_report": _handle_period_status_report,
         "reopen_periods": _handle_reopen_periods,
+        "list_c9999": _handle_list_c9999,
         "verify_month": _handle_verify_month,
         "process_month": _handle_process_month,
         "fix_month": _handle_process_month,  # deprecated alias
@@ -1014,6 +1254,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "household_base_share": _handle_household_base_share,
         "put_transaction_overrides": _handle_put_transaction_overrides,
         "upsert_expense_project": _handle_upsert_expense_project,
+        "create_budget_item": _handle_create_budget_item,
+        "create_plan_item": _handle_create_plan_item,
         "update_plan_item": _handle_update_plan_item,
         "query_transactions": _handle_query_transactions,
         "delete_transactions_by_filter": _handle_delete_transactions_by_filter,

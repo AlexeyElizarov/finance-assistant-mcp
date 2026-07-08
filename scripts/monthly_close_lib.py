@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from decimal import Decimal
 from typing import Any
 
 from finance_api_client import ApiClient, resolve_api_base
@@ -33,6 +35,188 @@ IMPORT_ORDER: tuple[tuple[str, str], ...] = (
 )
 
 CLOSE_PHASES = ("preliminary", "final")
+
+PRESET_MONTHLY_CLOSE_PREPARE = "monthly_close_prepare"
+
+PROCESS_MONTH_PRESETS: dict[str, dict[str, Any]] = {
+    PRESET_MONTHLY_CLOSE_PREPARE: {
+        "reopen_neighbors": True,
+        "reopen": True,
+        "reports": True,
+        "close": False,
+        "skip_import": False,
+        "verify_only": False,
+    },
+}
+
+OVERRIDABLE_PROCESS_MONTH_KEYS = frozenset(
+    {
+        "reopen_neighbors",
+        "reopen",
+        "skip_import",
+        "reports",
+        "close",
+        "verify_only",
+        "close_phase",
+        "apply_keywords",
+        "c9999_acknowledged",
+    }
+)
+
+
+def validate_process_month_close_phase(arguments: dict[str, Any], close_flag: bool) -> None:
+    """
+    Reject ``close_phase`` without ``close=true`` (FIN-31 D-09).
+
+    :param arguments: Raw MCP tool arguments
+    :param close_flag: Effective close flag after preset merge
+    :raises ValueError: When ``close_phase`` is present but close is false
+    """
+    if "close_phase" in arguments and not close_flag:
+        raise ValueError("close_phase requires close=true")
+
+
+def validate_process_month_c9999_acknowledged(
+    arguments: dict[str, Any],
+    close_flag: bool,
+    close_phase: str,
+) -> None:
+    """
+    Reject invalid ``c9999_acknowledged`` combinations (FIN-2 D-05, D-06).
+
+    :param arguments: Raw MCP tool arguments
+    :param close_flag: Effective close flag after preset merge
+    :param close_phase: Effective close phase
+    :raises ValueError: When ack is set without close or with final close
+    """
+    if not bool(arguments.get("c9999_acknowledged")):
+        return
+    if not close_flag:
+        raise ValueError("c9999_acknowledged requires close=true")
+    if close_phase == "final":
+        raise ValueError("c9999_acknowledged is not allowed with close_phase=final")
+
+
+def keywords_payload_effective(payload: dict[str, Any]) -> bool:
+    """
+    Return whether a keywords JSON payload contains at least one non-blank rule.
+
+    :param payload: ``{category_id: [keywords]}`` object
+    :return: True when at least one keyword has ``len(s.strip()) > 0``
+    """
+    for keywords in payload.values():
+        if not isinstance(keywords, list):
+            continue
+        for kw in keywords:
+            if isinstance(kw, str) and len(kw.strip()) > 0:
+                return True
+    return False
+
+
+def keywords_file_effective(path: Path) -> bool:
+    """
+    Return whether a keywords JSON file is effective for C9999 guard (FIN-2 D-03).
+
+    :param path: Path to keywords JSON file
+    :return: True when payload contains at least one non-blank keyword
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return False
+    return keywords_payload_effective(payload)
+
+
+def c9999_close_guard_error(
+    *,
+    expense_c9999_count: int,
+    close_phase: str,
+    keywords_effective: bool,
+    c9999_acknowledged: bool,
+) -> str | None:
+    """
+    Return close-blocking error for C9999 guard, or ``None`` when close may proceed.
+
+    :param expense_c9999_count: Count from latest verify classification summary
+    :param close_phase: ``preliminary`` or ``final``
+    :param keywords_effective: Whether apply_keywords payload was effective
+    :param c9999_acknowledged: Operator acknowledged retained C9999 (preliminary only)
+    :return: English error message when blocked, else ``None``
+    """
+    if expense_c9999_count <= 0:
+        return None
+    if close_phase == "final":
+        return "C9999 > 0 — resolve C9999 before final close"
+    if close_phase == "preliminary":
+        if keywords_effective or c9999_acknowledged:
+            return None
+        return (
+            "C9999 > 0 — apply_keywords or c9999_acknowledged before preliminary close"
+        )
+    return None
+
+
+def resolve_process_month_arguments(arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Expand ``preset`` into orchestrator defaults merged with explicit overrides.
+
+    :param arguments: Raw MCP tool arguments
+    :return: Effective orchestrator flags, or ``None`` when no preset
+    :raises ValueError: Unknown preset name
+    """
+    if "preset" not in arguments:
+        return None
+    preset_name = str(arguments["preset"])
+    base = PROCESS_MONTH_PRESETS.get(preset_name)
+    if base is None:
+        raise ValueError(f"unknown preset {preset_name!r}")
+    explicit = {
+        k: arguments[k]
+        for k in OVERRIDABLE_PROCESS_MONTH_KEYS
+        if k in arguments
+    }
+    return {**base, **explicit}
+
+
+def prepare_process_month_orchestrator_flags(arguments: dict[str, Any]) -> dict[str, Any]:
+    """
+    Resolve preset merge and return normalized orchestrator flags for the handler.
+
+    :param arguments: Raw MCP tool arguments
+    :return: Flag dict consumed by ``_handle_process_month``
+    :raises ValueError: Invalid preset or ``close_phase`` without close
+    """
+    effective = resolve_process_month_arguments(arguments)
+    if effective is None:
+        close_flag = bool(arguments.get("close"))
+        close_phase = str(arguments.get("close_phase") or "final")
+        validate_process_month_close_phase(arguments, close_flag)
+        validate_process_month_c9999_acknowledged(arguments, close_flag, close_phase)
+        return {
+            "verify_only": bool(arguments.get("verify_only")),
+            "reopen": bool(arguments.get("reopen")),
+            "reopen_neighbors": bool(arguments.get("reopen_neighbors")),
+            "skip_import": bool(arguments.get("skip_import")),
+            "close": close_flag,
+            "close_phase": close_phase,
+            "reports": bool(arguments.get("reports")),
+            "apply_keywords": arguments.get("apply_keywords"),
+            "c9999_acknowledged": bool(arguments.get("c9999_acknowledged")),
+        }
+    close_flag = bool(effective.get("close"))
+    close_phase = str(effective.get("close_phase") or "final")
+    validate_process_month_close_phase(arguments, close_flag)
+    validate_process_month_c9999_acknowledged(arguments, close_flag, close_phase)
+    return {
+        "verify_only": bool(effective.get("verify_only")),
+        "reopen": bool(effective.get("reopen")),
+        "reopen_neighbors": bool(effective.get("reopen_neighbors")),
+        "skip_import": bool(effective.get("skip_import")),
+        "close": close_flag,
+        "close_phase": close_phase,
+        "reports": bool(effective.get("reports")),
+        "apply_keywords": effective.get("apply_keywords"),
+        "c9999_acknowledged": bool(arguments.get("c9999_acknowledged")),
+    }
 
 
 @dataclass(frozen=True)
@@ -71,6 +255,31 @@ def parse_period(raw: str) -> Period:
     if month < 1 or month > 12:
         raise ValueError(f"invalid month in period {raw!r}")
     return Period(year=year, month=month)
+
+
+def period_last_day(period: Period) -> str:
+    """
+    Return ISO date of the last calendar day in a budget month (FIN-109 D-05).
+
+    :param period: Target month
+    :return: ``YYYY-MM-DD``
+    """
+    last = calendar.monthrange(period.year, period.month)[1]
+    return f"{period.yyyy_mm}-{last:02d}"
+
+
+def assert_period_range(start: Period, end: Period) -> None:
+    """
+    Reject when ``end`` month is strictly before ``start`` (FIN-109 D-05).
+
+    :param start: REG start month
+    :param end: REG end month
+    :raises ValueError: When end precedes start
+    """
+    if (end.year, end.month) < (start.year, start.month):
+        raise ValueError(
+            f"end_period {end.yyyy_mm} must not be before start_period {start.yyyy_mm}",
+        )
 
 
 def shift_period(period: Period, months: int) -> Period:
@@ -625,7 +834,7 @@ def verify_period(
     :param api: API client
     :param period: Target month
     :param budget_version_id: Budget version UUID
-    :return: Verification result with ``ok`` and ``issues``
+    :return: Verification result with ``ok``, ``issues``, and ``warnings``
     """
     mc = mc_verify(api, period)
     summary = api.get_json(
@@ -640,12 +849,14 @@ def verify_period(
     t13 = checks.get("t13_income_expense", {})
 
     issues: list[str] = []
+    warnings: list[str] = []
     if mc["mc_from_17th"] == 0:
         issues.append(
             "MC: нет операций с 17-го — проверь tail PDF в одном batch с head"
         )
-    if int(summary.get("expense_c9999_count") or 0) > 0:
-        issues.append(f"C9999: {summary['expense_c9999_count']} расходов")
+    c9999_count = int(summary.get("expense_c9999_count") or 0)
+    if c9999_count > 0:
+        warnings.append(f"C9999: {c9999_count} расходов")
     if balances.get("status") == "incomplete":
         issues.append("balances: incomplete — повтори import SEPA/MC пока period open")
     elif balances.get("status") != "pass":
@@ -664,6 +875,7 @@ def verify_period(
     result: dict[str, Any] = {
         "ok": len(issues) == 0,
         "issues": issues,
+        "warnings": warnings,
         "mc": mc,
         "classification_summary": summary,
         "readiness": readiness,
@@ -884,8 +1096,15 @@ def print_verify_report(verify: dict[str, Any], period: Period) -> None:
         print("issues:")
         for issue in verify["issues"]:
             print(f"  - {issue}")
-    else:
+    warnings = verify.get("warnings") or []
+    if warnings:
+        print("warnings:")
+        for warning in warnings:
+            print(f"  - {warning}")
+    if verify["ok"]:
         print("verify: OK")
+    elif not verify["issues"]:
+        print("verify: issues empty but ok=false")
 
 
 def c9999_rows(api: ApiClient, period: Period) -> list[dict]:
@@ -902,6 +1121,122 @@ def c9999_rows(api: ApiClient, period: Period) -> list[dict]:
     )
     rows = body.get("rows")
     return rows if isinstance(rows, list) else []
+
+
+UNPARSEABLE_DATE_SORT_KEY = "9999-12-31"
+
+
+def parse_transaction_date_sort_key(date_display: str) -> tuple[str, bool]:
+    """
+    Parse display date to ISO sort key ``YYYY-MM-DD``.
+
+    :param date_display: ``DD.MM.YYYY`` or ``YYYY-MM-DD``
+    :return: Sort key and whether parsing succeeded
+    """
+    text = (date_display or "").strip()
+    if not text:
+        return UNPARSEABLE_DATE_SORT_KEY, False
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10], True
+    parts = text.split(".")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        day, month, year = parts
+        return f"{year}-{month.zfill(2)}-{day.zfill(2)}", True
+    return UNPARSEABLE_DATE_SORT_KEY, False
+
+
+def parse_c9999_amount(raw: Any) -> Decimal:
+    """
+    Parse transaction amount as absolute ``Decimal``.
+
+    :param raw: Amount from API row
+    :return: Non-negative decimal
+    :raises ValueError: When value is not numeric
+    """
+    from decimal import InvalidOperation
+
+    if raw is None:
+        return Decimal("0")
+    text = str(raw).strip().replace(",", ".")
+    if not text:
+        return Decimal("0")
+    try:
+        return abs(Decimal(text))
+    except InvalidOperation as exc:
+        raise ValueError(f"amount must be numeric, got {raw!r}") from exc
+
+
+def decimal_amount_to_json_number(amount: Decimal) -> float:
+    """
+    Serialize money for MCP JSON responses (two fractional digits).
+
+    :param amount: Decimal amount
+    :return: JSON number
+    """
+    return float(amount.quantize(Decimal("0.01")))
+
+
+def normalize_c9999_rows(raw_rows: list[dict]) -> tuple[list[dict[str, Any]], list[str], Decimal]:
+    """
+    Normalize, sort, and aggregate C9999 list rows (FIN-17).
+
+    :param raw_rows: Rows from :func:`c9999_rows`
+    :return: Normalized rows, warnings, total amount
+    """
+    warnings: list[str] = []
+    enriched: list[tuple[str, str, dict[str, Any], Decimal]] = []
+
+    for raw in raw_rows:
+        row_id = str(raw.get("id") or "")
+        date_display = str(raw.get("date_display") or "")
+        sort_key, date_ok = parse_transaction_date_sort_key(date_display)
+        if not date_ok:
+            warnings.append(f"unparseable_date:id={row_id}:date_display={date_display}")
+        try:
+            amount_dec = parse_c9999_amount(raw.get("amount"))
+        except ValueError:
+            amount_dec = Decimal("0")
+            warnings.append(f"unparseable_amount:id={row_id}:amount={raw.get('amount')!r}")
+        enriched.append(
+            (
+                sort_key,
+                str(raw.get("description") or "").casefold(),
+                {
+                    "id": row_id,
+                    "date": date_display,
+                    "amount": decimal_amount_to_json_number(amount_dec),
+                    "description": str(raw.get("description") or ""),
+                    "provider": str(raw.get("provider") or ""),
+                    "project": str(raw.get("project") or ""),
+                    "suggestions": [],
+                },
+                amount_dec,
+            )
+        )
+
+    enriched.sort(key=lambda item: (item[0], item[1]))
+    rows = [item[2] for item in enriched]
+    total = sum((item[3] for item in enriched), Decimal("0"))
+    return rows, warnings, total
+
+
+def list_c9999_payload(api: ApiClient, period: Period) -> dict[str, Any]:
+    """
+    Build ``list_c9999`` tool payload for one accounting month.
+
+    :param api: API client
+    :param period: Target month
+    :return: Rows, counts, warnings (without profile/base/ok)
+    """
+    raw_rows = c9999_rows(api, period)
+    rows, warnings, total = normalize_c9999_rows(raw_rows)
+    return {
+        "period": period.yyyy_mm,
+        "row_count": len(rows),
+        "total_amount_eur": decimal_amount_to_json_number(total),
+        "warnings": warnings,
+        "rows": rows,
+    }
 
 
 def print_c9999_proposal(rows: list[dict]) -> None:
@@ -1057,18 +1392,68 @@ _PLAN_ITEM_PUT_KEYS = frozenset(
 )
 
 
-def plan_item_put_body(plan_item: dict[str, Any], amount: str) -> dict[str, Any]:
+def period_from_start_date(start_date: str) -> Period:
+    """
+    Derive budget month from plan-item ``start_date`` (ISO date).
+
+    :param start_date: ``YYYY-MM-DD`` or longer ISO prefix
+    :return: Parsed period
+    :raises ValueError: When date prefix is invalid
+    """
+    return parse_period(start_date[:7])
+
+
+def plan_item_put_body(
+    plan_item: dict[str, Any],
+    amount: str,
+    *,
+    start_period: Period | None = None,
+    end_period: Period | None = None,
+) -> dict[str, Any]:
     """
     Build PUT body from a plan item, dropping projection-page enrichments.
 
     :param plan_item: Source row (GET plan-item or projection-period-page)
     :param amount: Normalized amount string
+    :param start_period: Optional new REG start month (FIN-110)
+    :param end_period: Optional new REG end month (FIN-110)
     :return: Body accepted by ``PUT /budget/plan-items/{id}``
     """
     body = {k: plan_item[k] for k in _PLAN_ITEM_PUT_KEYS if k in plan_item}
     body["amount"] = amount
     body["id"] = str(plan_item["id"])
+    if start_period is not None:
+        body["start_date"] = start_period.month_start
+    if end_period is not None:
+        body["end_date"] = period_last_day(end_period)
     return body
+
+
+def validate_plan_item_period_update(
+    plan_item: dict[str, Any],
+    *,
+    start_period: Period | None,
+    end_period: Period | None,
+) -> None:
+    """
+    Validate start/end month changes before PUT (FIN-110 D-10).
+
+    :param plan_item: Resolved plan-item body (GET or projection-page)
+    :param start_period: Optional new start month
+    :param end_period: Optional new end month
+    :raises ValueError: When end month precedes effective start month
+    """
+    if start_period is None and end_period is None:
+        return
+    if start_period is not None and end_period is not None:
+        assert_period_range(start_period, end_period)
+        return
+    if end_period is not None:
+        existing_start = str(plan_item.get("start_date", ""))
+        if not existing_start:
+            raise ValueError("plan item has no start_date for end_period validation")
+        effective_start = period_from_start_date(existing_start)
+        assert_period_range(effective_start, end_period)
 
 
 class UpdatePlanItemRecalculateError(RuntimeError):
@@ -1287,10 +1672,12 @@ def update_plan_item(
     period: Period | None = None,
     article: str | None = None,
     budget_item_id: str | None = None,
+    start_period: Period | None = None,
+    end_period: Period | None = None,
     recalculate: bool = True,
 ) -> dict[str, Any]:
     """
-    Update one plan item amount and optionally recalculate projections (FIN-108).
+    Update one plan item amount and/or bounded horizon; optional recalculate (FIN-108, FIN-110).
 
     :param api: API client
     :param amount: New plan amount (non-negative; zero allowed)
@@ -1298,6 +1685,8 @@ def update_plan_item(
     :param period: Month for article resolve
     :param article: Article substring
     :param budget_item_id: Article UUID
+    :param start_period: Optional new REG start month
+    :param end_period: Optional new REG end month
     :param recalculate: Run projection recalculate after PUT
     :return: Tool result fields
     :raises UpdatePlanItemRecalculateError: PUT succeeded, recalculate failed
@@ -1310,13 +1699,23 @@ def update_plan_item(
         article=article,
         budget_item_id=budget_item_id,
     )
+    validate_plan_item_period_update(
+        plan_item,
+        start_period=start_period,
+        end_period=end_period,
+    )
     version_id = str(plan_item["budget_version_id"])
     version = fetch_budget_version(api, version_id)
     assert_version_mutable(version=version)
 
     plan_id = str(plan_item["id"])
     amount_before = str(plan_item.get("amount", ""))
-    put_body = plan_item_put_body(plan_item, amount_after)
+    put_body = plan_item_put_body(
+        plan_item,
+        amount_after,
+        start_period=start_period,
+        end_period=end_period,
+    )
 
     status, updated = api.request(
         "PUT",
@@ -1335,6 +1734,10 @@ def update_plan_item(
         "amount_after": amount_after,
         "plan_item": updated,
     }
+    if start_period is not None:
+        base_result["start_period"] = start_period.yyyy_mm
+    if end_period is not None:
+        base_result["end_period"] = end_period.yyyy_mm
 
     if not recalculate:
         return base_result
@@ -1343,6 +1746,305 @@ def update_plan_item(
         recalc_body = recalculate_budget_projections(api, version_id)
     except RuntimeError as exc:
         raise UpdatePlanItemRecalculateError(str(exc), base_result) from exc
+
+    base_result["recalculate"] = {
+        "budget_version_id": version_id,
+        "projection_rows": projection_rows_count(recalc_body),
+    }
+    return base_result
+
+
+class CreateBudgetItemPlanItemError(RuntimeError):
+    """
+    Plan-item POST failed after successful budget item POST (FIN-109 D-04).
+
+    :param message: Error text
+    :param context: Successful items POST fields for ops recovery
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+class CreateBudgetItemRecalculateError(RuntimeError):
+    """
+    Recalculate failed after successful budget item + plan-item POST (FIN-109 D-13).
+
+    :param message: Error text
+    :param context: Successful create fields for ops retry
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+def assert_budget_item_name_available(api: ApiClient, name: str) -> None:
+    """
+    Reject create when an article with the same name already exists (FIN-109 D-02).
+
+    Comparison uses ``strip()`` + ``casefold()`` on both sides; NFC/NFD not normalized.
+
+    :param api: API client
+    :param name: Proposed article name (already trimmed by caller)
+    :raises RuntimeError: When a case-insensitive exact match exists
+    """
+    needle = name.strip().casefold()
+    data = api.get_json("/api/v1/budget/items")
+    for item in data.get("budget_items", []):
+        if str(item.get("name", "")).strip().casefold() == needle:
+            raise RuntimeError(f"budget item already exists: {item.get('name')!r}")
+
+
+def build_reg_plan_item_body(
+    *,
+    budget_version_id: str,
+    budget_item_id: str,
+    amount: str,
+    currency: str,
+    start_period: Period,
+    end_period: Period | None,
+    periodicity: str,
+) -> dict[str, Any]:
+    """
+    Build POST body for a REG plan item (FIN-109).
+
+    :param budget_version_id: ACT version UUID
+    :param budget_item_id: New article UUID
+    :param amount: Normalized amount string
+    :param currency: Currency code
+    :param start_period: REG start month
+    :param end_period: Optional REG end month (last day of month in ``end_date``)
+    :param periodicity: REG periodicity code
+    :return: Body for ``POST /budget/plan-items``
+    """
+    body: dict[str, Any] = {
+        "budget_version_id": budget_version_id,
+        "budget_item_id": budget_item_id,
+        "planning_type": "REG",
+        "amount": amount,
+        "currency": currency,
+        "status": "ACTIVE",
+        "periodicity": periodicity,
+        "start_date": start_period.month_start,
+        "end_date": period_last_day(end_period) if end_period else None,
+        "forecast_method": None,
+    }
+    return body
+
+
+def create_budget_item(
+    api: ApiClient,
+    *,
+    name: str,
+    flow_type: str,
+    operation_category_id: str,
+    amount: Any,
+    start_period: Period,
+    planning_type: str = "REG",
+    keywords: list[str] | None = None,
+    item_status: str = "ACT",
+    currency: str = "EUR",
+    periodicity: str = "M",
+    end_period: Period | None = None,
+    recalculate: bool = True,
+) -> dict[str, Any]:
+    """
+    Create budget item and REG plan-item in ACT version, optionally recalculate (FIN-109).
+
+    :param api: API client
+    :param name: Article name
+    :param flow_type: ``EXP`` or ``INC``
+    :param operation_category_id: Operation category code
+    :param amount: REG plan amount (non-negative)
+    :param start_period: First active month
+    :param planning_type: Must be ``REG`` in v1
+    :param keywords: Optional article keywords (empty list allowed)
+    :param item_status: ``budget_item.status`` (default ACT)
+    :param currency: Plan currency
+    :param periodicity: REG periodicity (backend validates)
+    :param end_period: Optional last active month
+    :param recalculate: Run projection recalculate after POST plan-item
+    :return: Tool result fields
+    :raises CreateBudgetItemPlanItemError: Items POST OK, plan-items POST failed
+    :raises CreateBudgetItemRecalculateError: POSTs succeeded, recalculate failed
+    """
+    if planning_type != "REG":
+        raise ValueError(f"planning_type must be REG, got {planning_type!r}")
+
+    trimmed_name = name.strip()
+    if not trimmed_name:
+        raise ValueError("name is required")
+    if not flow_type.strip():
+        raise ValueError("flow_type is required")
+    if not operation_category_id.strip():
+        raise ValueError("operation_category_id is required")
+    if end_period is not None:
+        assert_period_range(start_period, end_period)
+
+    amount_norm = normalize_plan_amount(amount)
+    version_id = resolve_act_version_id(api)
+    version = fetch_budget_version(api, version_id)
+    assert_version_mutable(version=version)
+    assert_budget_item_name_available(api, trimmed_name)
+
+    item_body: dict[str, Any] = {
+        "name": trimmed_name,
+        "flow_type": flow_type.strip(),
+        "operation_category_id": operation_category_id.strip(),
+        "planning_type": planning_type,
+        "keywords": list(keywords or []),
+        "status": item_status,
+    }
+    status_code, created_item = api.request("POST", "/api/v1/budget/items", data=item_body)
+    if status_code != 201 or not isinstance(created_item, dict):
+        raise RuntimeError(f"POST budget/items -> {status_code}: {created_item}")
+
+    budget_item_id = str(created_item["id"])
+    items_context: dict[str, Any] = {
+        "budget_version_id": version_id,
+        "budget_item_id": budget_item_id,
+        "name": trimmed_name,
+        "amount": amount_norm,
+        "budget_item": created_item,
+    }
+
+    plan_body = build_reg_plan_item_body(
+        budget_version_id=version_id,
+        budget_item_id=budget_item_id,
+        amount=amount_norm,
+        currency=currency.strip().upper(),
+        start_period=start_period,
+        end_period=end_period,
+        periodicity=periodicity,
+    )
+    plan_status, created_plan = api.request(
+        "POST",
+        "/api/v1/budget/plan-items",
+        data=plan_body,
+    )
+    if plan_status != 201 or not isinstance(created_plan, dict):
+        raise CreateBudgetItemPlanItemError(
+            f"POST budget/plan-items -> {plan_status}: {created_plan}",
+            items_context,
+        )
+
+    base_result: dict[str, Any] = {
+        **items_context,
+        "plan_item_id": str(created_plan["id"]),
+        "start_period": start_period.yyyy_mm,
+        "plan_item": created_plan,
+    }
+    if end_period is not None:
+        base_result["end_period"] = end_period.yyyy_mm
+
+    if not recalculate:
+        return base_result
+
+    try:
+        recalc_body = recalculate_budget_projections(api, version_id)
+    except RuntimeError as exc:
+        raise CreateBudgetItemRecalculateError(str(exc), base_result) from exc
+
+    base_result["recalculate"] = {
+        "budget_version_id": version_id,
+        "projection_rows": projection_rows_count(recalc_body),
+    }
+    return base_result
+
+
+class CreatePlanItemRecalculateError(RuntimeError):
+    """
+    Recalculate failed after successful plan-item POST (FIN-110 D-07b).
+
+    :param message: Error text
+    :param context: Successful create fields for ops retry
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+def create_plan_item(
+    api: ApiClient,
+    amount: Any,
+    start_period: Period,
+    *,
+    article: str | None = None,
+    budget_item_id: str | None = None,
+    planning_type: str = "REG",
+    currency: str = "EUR",
+    periodicity: str = "M",
+    end_period: Period | None = None,
+    recalculate: bool = True,
+) -> dict[str, Any]:
+    """
+    POST REG plan-item on an existing budget article in ACT version (FIN-110).
+
+    :param api: API client
+    :param amount: REG plan amount (non-negative; zero allowed)
+    :param start_period: First active month
+    :param article: Article substring
+    :param budget_item_id: Article UUID
+    :param planning_type: Must be ``REG`` in v1
+    :param currency: Plan currency
+    :param periodicity: REG periodicity (backend validates)
+    :param end_period: Optional last active month
+    :param recalculate: Run projection recalculate after POST plan-item
+    :return: Tool result fields
+    :raises CreatePlanItemRecalculateError: POST succeeded, recalculate failed
+    """
+    if planning_type != "REG":
+        raise ValueError(f"planning_type must be REG, got {planning_type!r}")
+    if not article and not budget_item_id:
+        raise ValueError("article or budget_item_id is required")
+    if end_period is not None:
+        assert_period_range(start_period, end_period)
+
+    amount_norm = normalize_plan_amount(amount)
+    version_id = resolve_act_version_id(api)
+    version = fetch_budget_version(api, version_id)
+    assert_version_mutable(version=version)
+    item_id, article_name = resolve_budget_item_id_for_plan(api, article, budget_item_id)
+
+    plan_body = build_reg_plan_item_body(
+        budget_version_id=version_id,
+        budget_item_id=item_id,
+        amount=amount_norm,
+        currency=currency.strip().upper(),
+        start_period=start_period,
+        end_period=end_period,
+        periodicity=periodicity,
+    )
+    plan_status, created_plan = api.request(
+        "POST",
+        "/api/v1/budget/plan-items",
+        data=plan_body,
+    )
+    if plan_status != 201 or not isinstance(created_plan, dict):
+        raise RuntimeError(f"POST budget/plan-items -> {plan_status}: {created_plan}")
+
+    base_result: dict[str, Any] = {
+        "plan_item_id": str(created_plan["id"]),
+        "budget_item_id": item_id,
+        "budget_version_id": version_id,
+        "article": article_name,
+        "amount": amount_norm,
+        "start_period": start_period.yyyy_mm,
+        "plan_item": created_plan,
+    }
+    if end_period is not None:
+        base_result["end_period"] = end_period.yyyy_mm
+
+    if not recalculate:
+        return base_result
+
+    try:
+        recalc_body = recalculate_budget_projections(api, version_id)
+    except RuntimeError as exc:
+        raise CreatePlanItemRecalculateError(str(exc), base_result) from exc
 
     base_result["recalculate"] = {
         "budget_version_id": version_id,

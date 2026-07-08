@@ -51,7 +51,7 @@
 
 * **`transaction_key`** — стабильный SHA-256 hex; ops получает из `query_transactions` или drill-down API.
 * **`transaction_overrides`** — map `transaction_key` → `budget_item_id` (UUID статьи ACT в выбранной версии).
-* Backend **PUT** принимает **полную** map для `(budget_version_id, period)` — не patch (**D29**).
+* Backend **PUT** принимает **полную** map для `(buпрооdget_version_id, period)` — не patch (**D29**).
 * Период **`closed`** → **422** `period_closed`.
 * Невалидная статья / flow mismatch → **422** `validation_error`.
 * Успешный PUT → `status` **`draft`** (если был `open`).

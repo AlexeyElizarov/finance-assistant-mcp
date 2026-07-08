@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -19,10 +17,6 @@ from monthly_close_lib import (
     resolve_plan_item_for_update,
     update_plan_item,
 )
-
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 VID = "00000000-0000-4000-8000-000000000001"
 ITEM_ID = "11111111-1111-4111-8111-111111111111"
@@ -285,6 +279,48 @@ class UpdatePlanItemTest(unittest.TestCase):
         api = _UpdatePlanItemMockApi(version_missing=True)
         with self.assertRaises(RuntimeError):
             update_plan_item(api, "335.00", plan_item_id=PLAN_ID)
+
+    def test_start_and_end_period_in_put(self) -> None:
+        """T18: start_period + end_period + amount → PUT with new dates."""
+        api = _UpdatePlanItemMockApi(
+            plan_item=_plan_item("5.24"),
+        )
+        june = Period(year=2026, month=6)
+        result = update_plan_item(
+            api,
+            "62.90",
+            plan_item_id=PLAN_ID,
+            start_period=june,
+            end_period=june,
+        )
+        self.assertEqual(api.put_bodies[0]["start_date"], "2026-06-01")
+        self.assertEqual(api.put_bodies[0]["end_date"], "2026-06-30")
+        self.assertEqual(result["start_period"], "2026-06")
+        self.assertEqual(result["end_period"], "2026-06")
+
+    def test_only_end_period_validates_against_existing_start(self) -> None:
+        """T19: only end_period → validate vs existing start_date → PUT."""
+        api = _UpdatePlanItemMockApi(
+            plan_item={**_plan_item("300.00"), "start_date": "2026-01-01"},
+        )
+        end = Period(year=2026, month=12)
+        update_plan_item(api, "300.00", plan_item_id=PLAN_ID, end_period=end)
+        self.assertEqual(api.put_bodies[0]["end_date"], "2026-12-31")
+        self.assertEqual(api.put_bodies[0]["start_date"], "2026-01-01")
+
+    def test_end_period_before_existing_start_raises(self) -> None:
+        """T20: end_period < existing start → error before PUT."""
+        api = _UpdatePlanItemMockApi(
+            plan_item={**_plan_item("300.00"), "start_date": "2026-06-01"},
+        )
+        with self.assertRaises(ValueError):
+            update_plan_item(
+                api,
+                "62.90",
+                plan_item_id=PLAN_ID,
+                end_period=Period(year=2026, month=5),
+            )
+        self.assertEqual(api.put_bodies, [])
 
 
 class ProjectionRowsCountTest(unittest.TestCase):

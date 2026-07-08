@@ -17,10 +17,12 @@ from monthly_close_lib import (
     REPORTS_ROOT,
     WORKING,
     apply_keywords_file,
+    c9999_close_guard_error,
     c9999_rows,
     close_period,
     connect_api,
     generate_reports,
+    keywords_file_effective,
     mc_affected_periods,
     parse_period,
     print_c9999_proposal,
@@ -29,6 +31,7 @@ from monthly_close_lib import (
     resolve_budget_version_id,
     run_derive,
     run_imports,
+    validate_process_month_c9999_acknowledged,
     verify_period,
     print_verify_report,
 )
@@ -61,6 +64,13 @@ def run_pipeline(args: argparse.Namespace) -> int:
     }
 
     print(f"=== {profile} {period.yyyy_mm} ({period.ymmm}) @ {base} ===")
+
+    validate_process_month_c9999_acknowledged(
+        {"c9999_acknowledged": args.c9999_acknowledged},
+        args.close,
+        args.close_phase,
+    )
+
     meta = api.get_json("/api/v1/meta")
     print("meta profile:", meta.get("data_profile"))
     if meta.get("data_profile") != profile:
@@ -80,11 +90,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
         print("reopen:", status, body)
         log["steps"]["reopen"] = {"status": status, "body": body}
 
+    keywords_effective = False
     if args.apply_keywords:
+        keywords_effective = keywords_file_effective(args.apply_keywords)
         added = apply_keywords_file(api, args.apply_keywords)
-        print(f"keywords added: {len(added)}")
+        print(f"keywords added: {len(added)} (effective={keywords_effective})")
         for item in added:
             print(f"  {item['category']}: {item['keyword']}")
+        log["steps"]["keywords_effective"] = keywords_effective
         log["steps"]["keywords_added"] = added
 
     if not args.skip_import:
@@ -121,25 +134,36 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     generate_reports(api, period, out_dir, log)
 
-    if rows and not args.apply_keywords:
-        print("STOP: C9999 > 0 — apply keywords or fix manually before --close")
-        log["steps"]["close"] = {"status": "skipped", "reason": "c9999_pending"}
-        log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
-        print("log:", log_path)
-        return 1
+    if args.close:
+        guard_error = c9999_close_guard_error(
+            expense_c9999_count=c9999_count,
+            close_phase=args.close_phase,
+            keywords_effective=keywords_effective,
+            c9999_acknowledged=args.c9999_acknowledged,
+        )
+        if guard_error:
+            print(f"STOP: {guard_error}", file=sys.stderr)
+            log["steps"]["close"] = {"status": "skipped", "reason": "c9999_guard"}
+            log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
+            print("log:", log_path)
+            return 1
 
     if not args.close:
         print("close: SKIPPED (no --close; see close-policy.md)")
         log["steps"]["close"] = {"status": "skipped", "reason": "no --close flag"}
         log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
         print("log:", log_path)
-        return 0 if readiness.get("ready") else 1
+        return 0 if verify["ok"] else 1
 
     if not readiness.get("ready"):
         print("close: BLOCKED (readiness not ready)", file=sys.stderr)
         log["steps"]["close"] = {"status": "blocked", "reason": "readiness false"}
         log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
         return 1
+
+    if args.c9999_acknowledged and c9999_count > 0 and args.close_phase == "preliminary":
+        log["steps"]["c9999_acknowledged"] = True
+        log["steps"]["c9999_count"] = c9999_count
 
     close_status, close_body = close_period(
         api, vid, period, close_phase=args.close_phase
@@ -211,6 +235,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         help="JSON {category_id: [keywords]} - only after user approved C9999 proposal",
+    )
+    parser.add_argument(
+        "--c9999-acknowledged",
+        action="store_true",
+        help="Acknowledge retained C9999 misc (preliminary close only)",
     )
     return parser
 

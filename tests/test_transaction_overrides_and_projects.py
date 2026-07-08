@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -16,10 +14,6 @@ from monthly_close_lib import (
     put_transaction_overrides,
     upsert_expense_project,
 )
-
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 VID = "00000000-0000-4000-8000-000000000001"
 PERIOD = Period(year=2026, month=5)
