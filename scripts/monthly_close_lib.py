@@ -97,19 +97,177 @@ def validate_process_month_c9999_acknowledged(
         raise ValueError("c9999_acknowledged is not allowed with close_phase=final")
 
 
+UNIFIED_KEYWORDS_SECTIONS = frozenset({"categories", "budget_items", "projects"})
+
+
+class ApplyKeywordsError(Exception):
+    """Base error for keyword apply flows (FIN-16)."""
+
+
+class ApplyKeywordsValidationError(ApplyKeywordsError):
+    """Invalid payload or unknown entity reference."""
+
+
+class ApplyKeywordsPartialError(ApplyKeywordsError):
+    """HTTP failure after partial apply (FIN-16 D-07)."""
+
+    def __init__(self, message: str, *, partial_changes: dict[str, list[dict[str, Any]]]) -> None:
+        super().__init__(message)
+        self.partial_changes = partial_changes
+
+
+def empty_keywords_changes() -> dict[str, list[dict[str, Any]]]:
+    """
+    Return an empty keyword change journal (FIN-16).
+
+    :return: All journal lists empty
+    """
+    return {
+        "categories_added": [],
+        "categories_removed": [],
+        "budget_items_added": [],
+        "budget_items_removed": [],
+        "projects_added": [],
+        "projects_removed": [],
+    }
+
+
+def _is_category_id(key: str) -> bool:
+    return len(key) >= 2 and key[0] in "CPSI"
+
+
+def _validate_string_list(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ApplyKeywordsValidationError(f"{label} must be a string array")
+    out: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ApplyKeywordsValidationError(f"{label}[{index}] must be a string")
+        out.append(item)
+    return out
+
+
+def _normalize_keyword_ops(adds: list[str], removes: list[str]) -> tuple[list[str], list[str]]:
+    def dedup(items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for kw in items:
+            if not kw.strip():
+                continue
+            if kw in seen:
+                continue
+            seen.add(kw)
+            out.append(kw)
+        return out
+
+    return dedup(adds), dedup(removes)
+
+
+def _parse_entity_keyword_ops(entry: Any, label: str) -> tuple[list[str], list[str]]:
+    if isinstance(entry, list):
+        adds = _validate_string_list(entry, label)
+        return _normalize_keyword_ops(adds, [])
+    if isinstance(entry, dict):
+        extra = set(entry) - {"add", "remove"}
+        if extra:
+            raise ApplyKeywordsValidationError(
+                f"{label}: extra fields not allowed: {sorted(extra)}"
+            )
+        raw_add = entry.get("add", [])
+        raw_remove = entry.get("remove", [])
+        if raw_add is None or raw_remove is None:
+            raise ApplyKeywordsValidationError(f"{label}: add/remove must not be null")
+        adds = _validate_string_list(raw_add, f"{label}.add")
+        removes = _validate_string_list(raw_remove, f"{label}.remove")
+        return _normalize_keyword_ops(adds, removes)
+    raise ApplyKeywordsValidationError(f"{label} must be a string array or add/remove object")
+
+
+@dataclass
+class _ParsedKeywordsPayload:
+    categories: list[tuple[str, list[str], list[str]]]
+    budget_items: list[tuple[str, list[str], list[str]]]
+    projects: list[tuple[str, list[str], list[str]]]
+
+
+def parse_keywords_payload(payload: Any) -> _ParsedKeywordsPayload:
+    """
+    Validate and normalize a keywords JSON payload (FIN-16).
+
+    :param payload: Raw JSON object
+    :return: Parsed sections with normalized add/remove lists
+    :raises ApplyKeywordsValidationError: Invalid structure
+    """
+    if not isinstance(payload, dict):
+        raise ApplyKeywordsValidationError("payload root must be an object")
+    if not payload:
+        return _ParsedKeywordsPayload([], [], [])
+
+    keys = list(payload.keys())
+    has_unified = any(key in UNIFIED_KEYWORDS_SECTIONS for key in keys)
+    has_legacy = any(_is_category_id(key) for key in keys)
+    invalid_root = [
+        key for key in keys if key not in UNIFIED_KEYWORDS_SECTIONS and not _is_category_id(key)
+    ]
+    if has_unified and has_legacy:
+        raise ApplyKeywordsValidationError("mixed unified sections and legacy category keys")
+    if invalid_root:
+        raise ApplyKeywordsValidationError(f"invalid root keys: {invalid_root}")
+
+    if has_unified:
+        if any(key not in UNIFIED_KEYWORDS_SECTIONS for key in keys):
+            bad = [key for key in keys if key not in UNIFIED_KEYWORDS_SECTIONS]
+            raise ApplyKeywordsValidationError(f"invalid root keys: {bad}")
+        categories_sec = payload.get("categories", {})
+        budget_sec = payload.get("budget_items", {})
+        projects_sec = payload.get("projects", {})
+        for name, section in (
+            ("categories", categories_sec),
+            ("budget_items", budget_sec),
+            ("projects", projects_sec),
+        ):
+            if section is None or not isinstance(section, dict):
+                raise ApplyKeywordsValidationError(f"{name} section must be an object")
+        categories = [
+            (cat_id, *_parse_entity_keyword_ops(entry, f"categories.{cat_id}"))
+            for cat_id, entry in categories_sec.items()
+        ]
+        budget_items = [
+            (item_key, *_parse_entity_keyword_ops(entry, f"budget_items.{item_key}"))
+            for item_key, entry in budget_sec.items()
+        ]
+        projects = [
+            (proj_id, *_parse_entity_keyword_ops(entry, f"projects.{proj_id}"))
+            for proj_id, entry in projects_sec.items()
+        ]
+        return _ParsedKeywordsPayload(categories, budget_items, projects)
+
+    if any(not _is_category_id(key) for key in keys):
+        raise ApplyKeywordsValidationError("legacy payload keys must be category ids")
+    categories = []
+    for cat_id, entry in payload.items():
+        adds = _validate_string_list(entry, cat_id)
+        norm_adds, norm_removes = _normalize_keyword_ops(adds, [])
+        categories.append((cat_id, norm_adds, norm_removes))
+    return _ParsedKeywordsPayload(categories, [], [])
+
+
 def keywords_payload_effective(payload: dict[str, Any]) -> bool:
     """
-    Return whether a keywords JSON payload contains at least one non-blank rule.
+    Return whether payload contains at least one non-blank add after normalization.
 
-    :param payload: ``{category_id: [keywords]}`` object
-    :return: True when at least one keyword has ``len(s.strip()) > 0``
+    :param payload: Keywords JSON object (legacy or unified)
+    :return: True when at least one add keyword remains after normalization
     """
-    for keywords in payload.values():
-        if not isinstance(keywords, list):
-            continue
-        for kw in keywords:
-            if isinstance(kw, str) and len(kw.strip()) > 0:
-                return True
+    try:
+        parsed = parse_keywords_payload(payload)
+    except ApplyKeywordsValidationError:
+        return False
+    for _key, adds, _removes in (
+        parsed.categories + parsed.budget_items + parsed.projects
+    ):
+        if adds:
+            return True
     return False
 
 
@@ -118,12 +276,12 @@ def keywords_file_effective(path: Path) -> bool:
     Return whether a keywords JSON file is effective for C9999 guard (FIN-2 D-03).
 
     :param path: Path to keywords JSON file
-    :return: True when payload contains at least one non-blank keyword
+    :return: True when payload contains at least one non-blank add
     """
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
         return False
-    return keywords_payload_effective(payload)
+    return keywords_payload_effective(raw)
 
 
 def c9999_close_guard_error(
@@ -1261,33 +1419,209 @@ def print_c9999_proposal(rows: list[dict]) -> None:
     print("Подтверди категории/keywords, затем --apply-keywords <file.json>")
 
 
-def apply_keywords_file(api: ApiClient, path: Path) -> list[dict]:
+def _merge_keyword_list(
+    existing: list[str],
+    adds: list[str],
+    removes: list[str],
+) -> tuple[list[str], list[str], list[str]]:
     """
-    Merge keywords from JSON and PUT categories.
+    Apply add then remove ops with exact keyword matching (FIN-16).
 
-    :param api: API client
-    :param path: JSON ``{category_id: [keywords]}``
-    :return: List of added keyword records
+    :param existing: Current keyword list from API
+    :param adds: Keywords to add
+    :param removes: Keywords to remove
+    :return: Tuple of new list, added journal, removed journal
     """
-    additions: dict[str, list[str]] = json.loads(path.read_text(encoding="utf-8"))
+    current = list(existing)
+    present = set(current)
+    added_journal: list[str] = []
+    removed_journal: list[str] = []
+    for kw in adds:
+        if kw not in present:
+            current.append(kw)
+            present.add(kw)
+            added_journal.append(kw)
+    for kw in removes:
+        if kw in present:
+            current.remove(kw)
+            present.discard(kw)
+            removed_journal.append(kw)
+    return current, added_journal, removed_journal
+
+
+def _resolve_budget_item(
+    key: str,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    by_id = {str(item["id"]): item for item in items}
+    if key in by_id:
+        return by_id[key]
+    normalized = key.strip().casefold()
+    matches = [
+        item
+        for item in items
+        if str(item.get("name", "")).strip().casefold() == normalized
+    ]
+    if not matches:
+        raise ApplyKeywordsValidationError(f"unknown budget item {key!r}")
+    if len(matches) > 1:
+        names = [str(m.get("name", "")) for m in matches]
+        raise ApplyKeywordsValidationError(
+            f"ambiguous budget item {key!r}: candidates={names}"
+        )
+    return matches[0]
+
+
+def _apply_category_keywords(
+    api: ApiClient,
+    parsed: _ParsedKeywordsPayload,
+    changes: dict[str, list[dict[str, Any]]],
+) -> None:
+    if not parsed.categories:
+        return
     categories = api.get_json("/api/v1/categories")["categories"]
-    by_id = {c["id"]: c for c in categories}
-    added: list[dict] = []
-    for cat_id, keywords in additions.items():
+    by_id = {str(c["id"]): c for c in categories}
+    categories_changed = False
+    for cat_id, adds, removes in parsed.categories:
         if cat_id not in by_id:
-            raise KeyError(f"unknown category {cat_id!r}")
-        existing = set(by_id[cat_id].get("keywords") or [])
-        for kw in keywords:
-            if kw not in existing:
-                by_id[cat_id].setdefault("keywords", []).append(kw)
-                existing.add(kw)
-                added.append({"category": cat_id, "keyword": kw})
+            raise ApplyKeywordsValidationError(f"unknown category {cat_id!r}")
+        existing = list(by_id[cat_id].get("keywords") or [])
+        new_list, added, removed = _merge_keyword_list(existing, adds, removes)
+        if added or removed:
+            by_id[cat_id]["keywords"] = new_list
+            categories_changed = True
+            for kw in added:
+                changes["categories_added"].append({"category": cat_id, "keyword": kw})
+            for kw in removed:
+                changes["categories_removed"].append({"category": cat_id, "keyword": kw})
+    if not categories_changed:
+        return
     status, body = api.request(
-        "PUT", "/api/v1/categories", data={"categories": categories}
+        "PUT",
+        "/api/v1/categories",
+        data={"categories": categories},
     )
     if status != 200:
-        raise RuntimeError(f"PUT categories -> {status}: {body}")
-    return added
+        raise ApplyKeywordsPartialError(
+            f"PUT categories -> {status}: {body}",
+            partial_changes=changes,
+        )
+
+
+def _apply_budget_item_keywords(
+    api: ApiClient,
+    parsed: _ParsedKeywordsPayload,
+    changes: dict[str, list[dict[str, Any]]],
+) -> None:
+    if not parsed.budget_items:
+        return
+    catalog = api.get_json("/api/v1/budget/items").get("budget_items", [])
+    merged: dict[str, tuple[dict[str, Any], list[str], list[str]]] = {}
+    for key, adds, removes in parsed.budget_items:
+        item = _resolve_budget_item(key, catalog)
+        item_id = str(item["id"])
+        if item_id not in merged:
+            merged[item_id] = (item, [], [])
+        _item, acc_adds, acc_removes = merged[item_id]
+        acc_adds.extend(adds)
+        acc_removes.extend(removes)
+        merged[item_id] = (_item, acc_adds, acc_removes)
+
+    for item_id, (item, adds, removes) in merged.items():
+        existing = list(item.get("keywords") or [])
+        norm_adds, norm_removes = _normalize_keyword_ops(adds, removes)
+        new_list, added, removed = _merge_keyword_list(existing, norm_adds, norm_removes)
+        if not added and not removed:
+            continue
+        body = dict(item)
+        body["keywords"] = new_list
+        status, resp = api.request("PUT", f"/api/v1/budget/items/{item_id}", data=body)
+        if status != 200:
+            raise ApplyKeywordsPartialError(
+                f"PUT budget/items/{item_id} -> {status}: {resp}",
+                partial_changes=changes,
+            )
+        name = str(item.get("name", ""))
+        for kw in added:
+            changes["budget_items_added"].append(
+                {"budget_item_id": item_id, "name": name, "keyword": kw}
+            )
+        for kw in removed:
+            changes["budget_items_removed"].append(
+                {"budget_item_id": item_id, "name": name, "keyword": kw}
+            )
+
+
+def _apply_project_keywords(
+    api: ApiClient,
+    parsed: _ParsedKeywordsPayload,
+    changes: dict[str, list[dict[str, Any]]],
+) -> None:
+    if not parsed.projects:
+        return
+    projects = api.get_json("/api/v1/projects").get("projects", [])
+    by_id = {str(p["id"]): p for p in projects}
+    merged: dict[str, tuple[dict[str, Any], list[str], list[str]]] = {}
+    for proj_id, adds, removes in parsed.projects:
+        if proj_id not in by_id:
+            raise ApplyKeywordsValidationError(f"unknown project {proj_id!r}")
+        if proj_id not in merged:
+            merged[proj_id] = (by_id[proj_id], [], [])
+        proj, acc_adds, acc_removes = merged[proj_id]
+        acc_adds.extend(adds)
+        acc_removes.extend(removes)
+        merged[proj_id] = (proj, acc_adds, acc_removes)
+
+    for proj_id, (project, adds, removes) in merged.items():
+        existing = list(project.get("keywords") or [])
+        norm_adds, norm_removes = _normalize_keyword_ops(adds, removes)
+        new_list, added, removed = _merge_keyword_list(existing, norm_adds, norm_removes)
+        if not added and not removed:
+            continue
+        body = dict(project)
+        body["keywords"] = new_list
+        status, resp = api.request("PUT", f"/api/v1/projects/{proj_id}", data=body)
+        if status != 200:
+            raise ApplyKeywordsPartialError(
+                f"PUT projects/{proj_id} -> {status}: {resp}",
+                partial_changes=changes,
+            )
+        for kw in added:
+            changes["projects_added"].append({"project": proj_id, "keyword": kw})
+        for kw in removed:
+            changes["projects_removed"].append({"project": proj_id, "keyword": kw})
+
+
+def apply_keywords_payload(api: ApiClient, payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """
+    Apply keywords from unified or legacy JSON payload (FIN-16).
+
+    :param api: API client
+    :param payload: Parsed keywords object
+    :return: Change journal with real persisted deltas
+    :raises ApplyKeywordsValidationError: Invalid payload or unknown entity
+    :raises ApplyKeywordsPartialError: HTTP failure after partial apply
+    """
+    parsed = parse_keywords_payload(payload)
+    changes = empty_keywords_changes()
+    _apply_category_keywords(api, parsed, changes)
+    _apply_budget_item_keywords(api, parsed, changes)
+    _apply_project_keywords(api, parsed, changes)
+    return changes
+
+
+def apply_keywords_file(api: ApiClient, path: Path) -> dict[str, list[dict[str, Any]]]:
+    """
+    Load keywords JSON from disk and apply via :func:`apply_keywords_payload`.
+
+    :param api: API client
+    :param path: Path to keywords JSON file
+    :return: Change journal
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ApplyKeywordsValidationError("payload root must be an object")
+    return apply_keywords_payload(api, raw)
 
 
 def run_derive(api: ApiClient, period: Period) -> dict | str | bytes:
@@ -1541,24 +1875,68 @@ def assert_version_mutable(
         raise RuntimeError("budget version is not mutable (can_mutate=false)")
 
 
+def _budget_item_planning_type(item: dict[str, Any]) -> str:
+    """
+    Read ``planning_type`` from a budget item API row.
+
+    :param item: Budget item dict
+    :return: ``REG`` or ``IRR``
+    """
+    return str(item.get("planning_type", "REG")).strip().upper()
+
+
 def resolve_budget_item_id_for_plan(
     api: ApiClient,
     article: str | None,
     budget_item_id: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """
     Resolve article label to budget item id (same rules as ``query_plan_fact``).
 
     :param api: API client
     :param article: Substring of article name
     :param budget_item_id: Explicit UUID
-    :return: Tuple of item id and display name
+    :return: Tuple of item id, display name, and ``planning_type``
+    :raises RuntimeError: When ``article`` and ``budget_item_id`` resolve to different ids
     """
+    if not article and not budget_item_id:
+        raise ValueError("article or budget_item_id required for resolve")
+
+    if budget_item_id and article:
+        item_by_id = api.get_json(f"/api/v1/budget/items/{budget_item_id}")
+        data = api.get_json("/api/v1/budget/items")
+        needle = article.casefold()
+        matches = [
+            row
+            for row in data.get("budget_items", [])
+            if needle in str(row.get("name", "")).casefold()
+        ]
+        if not matches:
+            raise RuntimeError(f"budget item not found for article {article!r}")
+        if len(matches) > 1:
+            names = ", ".join(str(m.get("name")) for m in matches)
+            raise RuntimeError(f"ambiguous article {article!r}: {names}")
+        id_from_article = str(matches[0]["id"])
+        if budget_item_id != id_from_article:
+            raise RuntimeError(
+                f"article {article!r} and budget_item_id {budget_item_id!r} "
+                "resolve to different budget items",
+            )
+        return (
+            budget_item_id,
+            str(item_by_id.get("name", budget_item_id)),
+            _budget_item_planning_type(item_by_id),
+        )
+
     if budget_item_id:
         item = api.get_json(f"/api/v1/budget/items/{budget_item_id}")
-        return budget_item_id, str(item.get("name", budget_item_id))
-    if not article:
-        raise ValueError("article or budget_item_id required for resolve")
+        return (
+            budget_item_id,
+            str(item.get("name", budget_item_id)),
+            _budget_item_planning_type(item),
+        )
+
+    assert article is not None
     data = api.get_json("/api/v1/budget/items")
     needle = article.casefold()
     matches = [
@@ -1572,7 +1950,7 @@ def resolve_budget_item_id_for_plan(
         names = ", ".join(str(m.get("name")) for m in matches)
         raise RuntimeError(f"ambiguous article {article!r}: {names}")
     item = matches[0]
-    return str(item["id"]), str(item["name"])
+    return str(item["id"]), str(item["name"]), _budget_item_planning_type(item)
 
 
 def resolve_plan_item_for_update(
@@ -1604,7 +1982,7 @@ def resolve_plan_item_for_update(
             "provide plan_item_id or (period and article or budget_item_id)",
         )
 
-    item_id, article_name = resolve_budget_item_id_for_plan(api, article, budget_item_id)
+    item_id, article_name, _ = resolve_budget_item_id_for_plan(api, article, budget_item_id)
     act_vid = resolve_act_version_id(api)
     query = (
         f"/api/v1/budget/projection-period-page"
@@ -1834,6 +2212,38 @@ def build_reg_plan_item_body(
     return body
 
 
+def build_irr_plan_item_body(
+    *,
+    budget_version_id: str,
+    budget_item_id: str,
+    amount: str,
+    currency: str,
+    forecast_method: str,
+) -> dict[str, Any]:
+    """
+    Build POST body for an IRR plan item (FIN-119).
+
+    :param budget_version_id: ACT version UUID
+    :param budget_item_id: Article UUID
+    :param amount: Normalized amount string
+    :param currency: Currency code
+    :param forecast_method: ``MAN`` or ``AVG``
+    :return: Body for ``POST /budget/plan-items``
+    """
+    return {
+        "budget_version_id": budget_version_id,
+        "budget_item_id": budget_item_id,
+        "planning_type": "IRR",
+        "amount": amount,
+        "currency": currency,
+        "status": "ACTIVE",
+        "periodicity": None,
+        "start_date": None,
+        "end_date": None,
+        "forecast_method": forecast_method.strip().upper(),
+    }
+
+
 def create_budget_item(
     api: ApiClient,
     *,
@@ -1970,54 +2380,104 @@ class CreatePlanItemRecalculateError(RuntimeError):
 def create_plan_item(
     api: ApiClient,
     amount: Any,
-    start_period: Period,
+    start_period: Period | None = None,
     *,
     article: str | None = None,
     budget_item_id: str | None = None,
-    planning_type: str = "REG",
+    planning_type: str | None = None,
+    forecast_method: str = "MAN",
     currency: str = "EUR",
     periodicity: str = "M",
     end_period: Period | None = None,
     recalculate: bool = True,
+    provided_fields: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """
-    POST REG plan-item on an existing budget article in ACT version (FIN-110).
+    POST REG or IRR plan-item on an existing budget article in ACT (FIN-110, FIN-119).
 
     :param api: API client
-    :param amount: REG plan amount (non-negative; zero allowed)
-    :param start_period: First active month
+    :param amount: Plan amount (non-negative; zero allowed)
+    :param start_period: First active month (REG only)
     :param article: Article substring
     :param budget_item_id: Article UUID
-    :param planning_type: Must be ``REG`` in v1
+    :param planning_type: Explicit ``REG`` or ``IRR``; omitted → infer from article
+    :param forecast_method: IRR forecast method (default ``MAN``)
     :param currency: Plan currency
     :param periodicity: REG periodicity (backend validates)
-    :param end_period: Optional last active month
+    :param end_period: Optional last active month (REG only)
     :param recalculate: Run projection recalculate after POST plan-item
+    :param provided_fields: Argument keys explicitly passed by caller
     :return: Tool result fields
     :raises CreatePlanItemRecalculateError: POST succeeded, recalculate failed
     """
-    if planning_type != "REG":
-        raise ValueError(f"planning_type must be REG, got {planning_type!r}")
     if not article and not budget_item_id:
         raise ValueError("article or budget_item_id is required")
-    if end_period is not None:
-        assert_period_range(start_period, end_period)
 
     amount_norm = normalize_plan_amount(amount)
+    item_id, article_name, article_planning_type = resolve_budget_item_id_for_plan(
+        api,
+        article,
+        budget_item_id,
+    )
+
+    explicit_planning_type = (
+        str(planning_type).strip().upper() if "planning_type" in provided_fields else None
+    )
+    if explicit_planning_type is not None and explicit_planning_type != article_planning_type:
+        raise ValueError(
+            f"planning_type {explicit_planning_type!r} does not match article "
+            f"planning_type {article_planning_type!r}",
+        )
+    effective_planning_type = (
+        explicit_planning_type if explicit_planning_type is not None else article_planning_type
+    )
+
+    if effective_planning_type == "REG":
+        if "forecast_method" in provided_fields:
+            raise ValueError("forecast_method is not allowed for REG plan-items")
+        if start_period is None:
+            raise ValueError("start_period is required for REG plan-items")
+        if end_period is not None:
+            assert_period_range(start_period, end_period)
+    elif effective_planning_type == "IRR":
+        if "start_period" in provided_fields:
+            raise ValueError("start_period is not allowed for IRR plan-items")
+        if "end_period" in provided_fields:
+            raise ValueError("end_period is not allowed for IRR plan-items")
+        if "periodicity" in provided_fields:
+            raise ValueError("periodicity is not allowed for IRR plan-items")
+        fm = forecast_method.strip().upper() if "forecast_method" in provided_fields else "MAN"
+        if fm not in {"MAN", "AVG"}:
+            raise ValueError(f"forecast_method must be MAN or AVG, got {fm!r}")
+    else:
+        raise ValueError(
+            f"unsupported planning_type {effective_planning_type!r}; expected REG or IRR",
+        )
+
     version_id = resolve_act_version_id(api)
     version = fetch_budget_version(api, version_id)
     assert_version_mutable(version=version)
-    item_id, article_name = resolve_budget_item_id_for_plan(api, article, budget_item_id)
 
-    plan_body = build_reg_plan_item_body(
-        budget_version_id=version_id,
-        budget_item_id=item_id,
-        amount=amount_norm,
-        currency=currency.strip().upper(),
-        start_period=start_period,
-        end_period=end_period,
-        periodicity=periodicity,
-    )
+    if effective_planning_type == "REG":
+        assert start_period is not None
+        plan_body = build_reg_plan_item_body(
+            budget_version_id=version_id,
+            budget_item_id=item_id,
+            amount=amount_norm,
+            currency=currency.strip().upper(),
+            start_period=start_period,
+            end_period=end_period,
+            periodicity=periodicity,
+        )
+    else:
+        plan_body = build_irr_plan_item_body(
+            budget_version_id=version_id,
+            budget_item_id=item_id,
+            amount=amount_norm,
+            currency=currency.strip().upper(),
+            forecast_method=fm,
+        )
+
     plan_status, created_plan = api.request(
         "POST",
         "/api/v1/budget/plan-items",
@@ -2032,11 +2492,16 @@ def create_plan_item(
         "budget_version_id": version_id,
         "article": article_name,
         "amount": amount_norm,
-        "start_period": start_period.yyyy_mm,
+        "planning_type": effective_planning_type,
         "plan_item": created_plan,
     }
-    if end_period is not None:
-        base_result["end_period"] = end_period.yyyy_mm
+    if effective_planning_type == "REG":
+        assert start_period is not None
+        base_result["start_period"] = start_period.yyyy_mm
+        if end_period is not None:
+            base_result["end_period"] = end_period.yyyy_mm
+    else:
+        base_result["forecast_method"] = plan_body["forecast_method"]
 
     if not recalculate:
         return base_result

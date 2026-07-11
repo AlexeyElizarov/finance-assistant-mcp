@@ -13,10 +13,13 @@ import urllib.error
 import urllib.parse
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Any
 
 from finance_api_client import ApiClient
+from monthly_close_lib import parse_period
 
 PROFILE_CHOICES = ("test", "cand", "prod")
+_FILTER_REQUIRED_MSG = "Укажите хотя бы один фильтр (даты, period, категория, --contains, …)"
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,148 @@ class Row:
     description: str
     category: str
     provider: str
+
+
+@dataclass(frozen=True)
+class QueryArgs:
+    """Normalized query filters for ``GET /api/v1/transactions`` (FIN-27)."""
+
+    date_from: str | None = None
+    date_to: str | None = None
+    indicator: str | None = None
+    period: str | None = None
+    accounting_period: str | None = None
+    category: str | None = None
+    transaction_category: str | None = None
+    provider: str | None = None
+    description: str | None = None
+    contains: list[str] | None = None
+
+
+def _normalize_optional_string(value: Any) -> str | None:
+    """
+    Trim a string filter; empty after trim is unset.
+
+    :param value: Raw filter value
+    :return: Active string or ``None``
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _normalize_contains(value: Any) -> list[str] | None:
+    """
+    Normalize ``contains`` list; drop empty elements after trim.
+
+    :param value: Raw contains value (list or single item)
+    :return: Non-empty needle list or ``None`` when unset
+    """
+    if value is None:
+        return None
+    items = value if isinstance(value, list) else [value]
+    needles = [
+        stripped
+        for item in items
+        if (stripped := _normalize_optional_string(item)) is not None
+    ]
+    return needles if needles else None
+
+
+def normalize_query_args(
+    *,
+    date_from: Any = None,
+    date_to: Any = None,
+    indicator: Any = None,
+    period: Any = None,
+    accounting_period: Any = None,
+    category: Any = None,
+    transaction_category: Any = None,
+    provider: Any = None,
+    description: Any = None,
+    contains: Any = None,
+) -> QueryArgs:
+    """
+    Normalize MCP/CLI transaction query arguments (FIN-27).
+
+    :return: :class:`QueryArgs` with active or unset filters
+    """
+    return QueryArgs(
+        date_from=_normalize_optional_string(date_from),
+        date_to=_normalize_optional_string(date_to),
+        indicator=_normalize_optional_string(indicator),
+        period=_normalize_optional_string(period),
+        accounting_period=_normalize_optional_string(accounting_period),
+        category=_normalize_optional_string(category),
+        transaction_category=_normalize_optional_string(transaction_category),
+        provider=_normalize_optional_string(provider),
+        description=_normalize_optional_string(description),
+        contains=_normalize_contains(contains),
+    )
+
+
+def _has_active_filter(args: QueryArgs) -> bool:
+    """
+    Return whether at least one filter is active after normalization.
+
+    :param args: Normalized query args
+    :return: True when a filter applies
+    """
+    return any(
+        (
+            args.date_from,
+            args.date_to,
+            args.indicator,
+            args.period,
+            args.accounting_period,
+            args.category,
+            args.transaction_category,
+            args.provider,
+            args.description,
+            args.contains,
+        )
+    )
+
+
+def _resolve_accounting_period_ymmm(args: QueryArgs) -> str | None:
+    """
+    Resolve MCP period filters to API ``accounting_period=YYYYMM``.
+
+    :param args: Normalized query args
+    :return: ``YYYYMM`` or ``None`` when period filter unset
+    :raises ValueError: On mutual exclusion or invalid ``period`` format
+    """
+    period_value = args.period
+    accounting_period_value = args.accounting_period
+    if period_value and accounting_period_value:
+        raise ValueError("period and accounting_period are mutually exclusive")
+    if period_value:
+        if len(period_value) < 7 or period_value[4] != "-":
+            raise ValueError("period must be YYYY-MM")
+        return parse_period(period_value).ymmm
+    if accounting_period_value:
+        return parse_period(accounting_period_value).ymmm
+    return None
+
+
+def _resolve_transaction_category(args: QueryArgs) -> str | None:
+    """
+    Resolve category aliases to a single API ``transaction_category`` value.
+
+    :param args: Normalized query args
+    :return: Category id or ``None`` when unset
+    :raises ValueError: When both aliases are active and differ
+    """
+    category_value = args.category
+    transaction_category_value = args.transaction_category
+    if (
+        category_value
+        and transaction_category_value
+        and category_value != transaction_category_value
+    ):
+        raise ValueError("category and transaction_category conflict")
+    return category_value or transaction_category_value
 
 
 def parse_amount(raw: str) -> float:
@@ -74,28 +219,41 @@ def row_from_api(raw: dict) -> Row:
     )
 
 
-def build_query_path(args: argparse.Namespace) -> str:
+def build_query_path(args: QueryArgs) -> str:
     """
     Build ``GET /api/v1/transactions`` query string.
 
-    :param args: Parsed CLI arguments
+    :param args: Normalized query args
     :return: Path with query string
+    :raises ValueError: When no active filter or validation fails
     """
+    if not _has_active_filter(args):
+        raise ValueError(_FILTER_REQUIRED_MSG)
+
     params: dict[str, str] = {}
+    period_ymmm = _resolve_accounting_period_ymmm(args)
+    if period_ymmm:
+        params["accounting_period"] = period_ymmm
+
+    category_value = _resolve_transaction_category(args)
+    if category_value:
+        params["transaction_category"] = category_value
+
     if args.date_from:
         params["date_from"] = args.date_from
     if args.date_to:
         params["date_to"] = args.date_to
     if args.indicator:
         params["debit_credit_indicator"] = args.indicator
-    if args.category:
-        params["transaction_category"] = args.category
     if args.provider:
         params["provider"] = args.provider
-    if args.description and len(args.contains) <= 1:
-        params["description"] = args.description or (args.contains[0] if args.contains else "")
+
+    contains = args.contains or []
+    if args.description and len(contains) <= 1:
+        params["description"] = args.description or (contains[0] if contains else "")
+
     if not params:
-        raise ValueError("Укажите хотя бы один фильтр (даты, категория, --contains, …)")
+        raise ValueError(_FILTER_REQUIRED_MSG)
     return "/api/v1/transactions?" + urllib.parse.urlencode(params)
 
 
@@ -113,12 +271,12 @@ def matches_contains(row: Row, needles: list[str]) -> bool:
     return any(n.lower() in hay for n in needles)
 
 
-def fetch_rows(api: ApiClient, args: argparse.Namespace) -> list[Row]:
+def fetch_rows(api: ApiClient, args: QueryArgs) -> list[Row]:
     """
     Load and post-filter transaction rows.
 
     :param api: API client
-    :param args: CLI arguments
+    :param args: Normalized query args
     :return: Matching rows
     """
     path = build_query_path(args)
@@ -127,7 +285,7 @@ def fetch_rows(api: ApiClient, args: argparse.Namespace) -> list[Row]:
     if meta.get("filter_error"):
         raise RuntimeError(f"Ошибка фильтра API: {meta['filter_error']}")
     rows = [row_from_api(r) for r in body.get("rows", [])]
-    needles = list(args.contains)
+    needles = list(args.contains or [])
     if args.description:
         needles.append(args.description)
     if len(needles) > 1 or (len(needles) == 1 and "description" not in path):
@@ -231,8 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Выборка транзакций через GET /api/v1/transactions",
         epilog=(
             "Пример: query-transactions.py --base http://127.0.0.1:8001 --profile cand "
-            "--from 2025-01-01 --to 2025-12-31 --indicator D "
-            "--contains vodafone --contains netcologne --group-by month --split-internet"
+            "--period 2026-02 --category C9999 --indicator D"
         ),
     )
     parser.add_argument(
@@ -247,12 +404,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--from", dest="date_from", metavar="DATE", help="date_from (YYYY-MM-DD)")
     parser.add_argument("--to", dest="date_to", metavar="DATE", help="date_to (YYYY-MM-DD)")
+    period_group = parser.add_mutually_exclusive_group()
+    period_group.add_argument(
+        "--period",
+        metavar="YYYY-MM",
+        help="Учётный месяц (YYYY-MM)",
+    )
+    period_group.add_argument(
+        "--accounting-period",
+        dest="accounting_period",
+        metavar="PERIOD",
+        help="Учётный месяц (YYYY-MM или YYYYMM)",
+    )
     parser.add_argument(
         "--indicator",
         choices=("D", "C"),
         help="debit_credit_indicator",
     )
     parser.add_argument("--category", help="transaction_category, напр. C0010")
+    parser.add_argument(
+        "--transaction-category",
+        dest="transaction_category",
+        help="Alias для --category",
+    )
     parser.add_argument("--provider", help="provider, напр. sparkasse_sepa")
     parser.add_argument(
         "--description",
@@ -291,32 +465,44 @@ def main() -> int:
     :return: Exit code
     """
     parser = build_parser()
-    args = parser.parse_args()
+    raw = parser.parse_args()
+    query_args = normalize_query_args(
+        date_from=raw.date_from,
+        date_to=raw.date_to,
+        indicator=raw.indicator,
+        period=raw.period,
+        accounting_period=raw.accounting_period,
+        category=raw.category,
+        transaction_category=raw.transaction_category,
+        provider=raw.provider,
+        description=raw.description,
+        contains=raw.contains,
+    )
     try:
-        api = ApiClient(args.base)
-        active = verify_profile(api, args.profile)
-        rows = fetch_rows(api, args)
-        if args.format == "json":
+        api = ApiClient(raw.base)
+        active = verify_profile(api, raw.profile)
+        rows = fetch_rows(api, query_args)
+        if raw.format == "json":
             payload = {
                 "data_profile": active or None,
                 "row_count": len(rows),
                 "rows": [
-                {
-                    "date": r.date_display,
-                    "amount": r.amount,
-                    "indicator": r.indicator,
-                    "category": r.category,
-                    "provider": r.provider,
-                    "description": r.description,
-                }
-                for r in rows
+                    {
+                        "date": r.date_display,
+                        "amount": r.amount,
+                        "indicator": r.indicator,
+                        "category": r.category,
+                        "provider": r.provider,
+                        "description": r.description,
+                    }
+                    for r in rows
                 ],
             }
             print(json.dumps(payload, ensure_ascii=False, indent=2))
-        elif args.group_by == "month":
+        elif raw.group_by == "month":
             if active:
                 print(f"# data_profile: {active}")
-            print_group_month(rows, args.split_internet)
+            print_group_month(rows, raw.split_internet)
         else:
             if active:
                 print(f"# data_profile: {active}")

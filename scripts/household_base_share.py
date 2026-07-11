@@ -1,15 +1,17 @@
-"""Household base personal-fund share computation (FIN-103)."""
+"""Household base personal-fund share computation (FIN-103, FIN-121, FIN-114)."""
 
 from __future__ import annotations
 
 import json
 import re
 import urllib.parse
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from finance_api_client import ApiClient
+from fx_rates import FX_RATES_PATH, format_api_error
 from monthly_close_lib import ASSISTANT_ROOT
 
 SUPPORTED_SCHEMA_VERSION = 1
@@ -24,6 +26,100 @@ SANITY_NOTE = (
 )
 
 _PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
+
+INCOME_MODE_SALARY_ONLY = "salary_only"
+INCOME_MODE_SALARY_PLUS_PARTNER = "salary_plus_partner_contribution"
+INCOME_MODE_MAPPING_DEFAULT = "mapping_default"
+_VALID_INCOME_MODES = frozenset(
+    {
+        INCOME_MODE_MAPPING_DEFAULT,
+        INCOME_MODE_SALARY_ONLY,
+        INCOME_MODE_SALARY_PLUS_PARTNER,
+    }
+)
+_PRESET_SALARY_NEEDLE = "заработная плата"
+_PRESET_PARTNER_NEEDLE = "взнос николая"
+
+REASON_MAPPING_EXCLUDE = "mapping:exclude"
+REASON_OVERRIDE_EXCLUDE = "override:exclude"
+REASON_INCOME_MODE_SALARY_ONLY = "income_mode:salary_only"
+REASON_INCOME_MODE_SALARY_PLUS_PARTNER = (
+    "income_mode:salary_plus_partner_contribution"
+)
+
+
+@dataclass(frozen=True)
+class IncomeFilterParams:
+    """Runtime household income composition (FIN-121)."""
+
+    income_mode: str | None
+    include_income_matches: tuple[str, ...]
+    exclude_income_matches: tuple[str, ...]
+
+
+def strip_income_match_list(matches: list[str] | None) -> list[str]:
+    """
+  Strip and drop empty override match strings.
+
+  :param matches: Raw match list from MCP/CLI
+  :return: Non-empty trimmed strings
+  """
+    if not matches:
+        return []
+    return [text.strip() for text in matches if text and text.strip()]
+
+
+def normalize_income_mode(raw: str | None) -> str | None:
+    """
+  Normalize ``income_mode`` preset.
+
+  :param raw: Request value or ``None``
+  :return: Active preset name or ``None`` for default
+  :raises RuntimeError: When value is unknown
+  """
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text or text == INCOME_MODE_MAPPING_DEFAULT:
+        return None
+    if text in (INCOME_MODE_SALARY_ONLY, INCOME_MODE_SALARY_PLUS_PARTNER):
+        return text
+    raise RuntimeError(f"Unknown income_mode: {raw!r}")
+
+
+def parse_income_filter_params(
+    *,
+    income_mode: str | None = None,
+    include_income_matches: list[str] | None = None,
+    exclude_income_matches: list[str] | None = None,
+) -> IncomeFilterParams:
+    """
+  Build normalized income filter parameters.
+
+  :param income_mode: Optional preset
+  :param include_income_matches: Optional include overrides
+  :param exclude_income_matches: Optional exclude overrides
+  :return: Normalized filter params
+  """
+    return IncomeFilterParams(
+        income_mode=normalize_income_mode(income_mode),
+        include_income_matches=tuple(strip_income_match_list(include_income_matches)),
+        exclude_income_matches=tuple(strip_income_match_list(exclude_income_matches)),
+    )
+
+
+def income_filter_is_active(params: IncomeFilterParams) -> bool:
+    """
+  Whether any FIN-121 income filter is active.
+
+  :param params: Normalized filter params
+  :return: ``True`` when preset or overrides are set
+  """
+    return (
+        params.income_mode is not None
+        or bool(params.include_income_matches)
+        or bool(params.exclude_income_matches)
+    )
 
 
 def parse_amount(raw: str | float | int | None) -> float:
@@ -182,6 +278,282 @@ def resolve_article_match(
     return str(item["id"]), str(item.get("name", item["id"]))
 
 
+def _flow_type_for_item(budget_items: list[dict[str, Any]], item_id: str) -> str | None:
+    for item in budget_items:
+        if str(item.get("id")) == item_id:
+            return str(item.get("flow_type")) if item.get("flow_type") is not None else None
+    return None
+
+
+def _resolve_income_override_ids(
+    matches: tuple[str, ...],
+    budget_items: list[dict[str, Any]],
+) -> set[str]:
+    """
+  Resolve include/exclude override matches to INC budget item ids.
+
+  :param matches: ``article_match`` strings
+  :param budget_items: Budget catalog
+  :return: Unique resolved item ids
+  :raises RuntimeError: On missing, ambiguous, or non-INC match
+  """
+    ids: set[str] = set()
+    for match in matches:
+        resolved = resolve_article_match(match, budget_items, required=True)
+        assert resolved is not None
+        item_id, article = resolved
+        if _flow_type_for_item(budget_items, item_id) != "INC":
+            raise RuntimeError(f"income match not inc: {article}")
+        ids.add(item_id)
+    return ids
+
+
+def _apply_income_mode_preset(
+    income_mode: str | None,
+    mapping_include_lines: dict[str, dict[str, Any]],
+) -> tuple[set[str], str | None]:
+    """
+  Filter mapping-include ids by preset substring rules.
+
+  :param income_mode: Active preset or ``None``
+  :param mapping_include_lines: Resolved mapping include lines by id
+  :return: Preset id set and mode suffix for excluded reasons
+  """
+    all_ids = set(mapping_include_lines.keys())
+    if income_mode is None:
+        return all_ids, None
+    if income_mode == INCOME_MODE_SALARY_ONLY:
+        preset_ids = {
+            item_id
+            for item_id, line in mapping_include_lines.items()
+            if _PRESET_SALARY_NEEDLE in str(line.get("article", "")).casefold()
+        }
+        return preset_ids, INCOME_MODE_SALARY_ONLY
+    if income_mode == INCOME_MODE_SALARY_PLUS_PARTNER:
+        preset_ids = {
+            item_id
+            for item_id, line in mapping_include_lines.items()
+            if _PRESET_SALARY_NEEDLE in str(line.get("article", "")).casefold()
+            or _PRESET_PARTNER_NEEDLE in str(line.get("article", "")).casefold()
+        }
+        return preset_ids, INCOME_MODE_SALARY_PLUS_PARTNER
+    raise RuntimeError(f"Unknown income_mode: {income_mode!r}")
+
+
+def _excluded_reason_for_item(
+    item_id: str,
+    *,
+    exclude_override_ids: set[str],
+    mapping_exclude_ids: set[str],
+    mapping_include_ids: set[str],
+    preset_ids: set[str],
+    income_mode_suffix: str | None,
+) -> str:
+    if item_id in exclude_override_ids:
+        return REASON_OVERRIDE_EXCLUDE
+    if item_id in mapping_exclude_ids:
+        return REASON_MAPPING_EXCLUDE
+    if (
+        item_id in mapping_include_ids
+        and item_id not in preset_ids
+        and income_mode_suffix is not None
+    ):
+        return f"income_mode:{income_mode_suffix}"
+    return REASON_MAPPING_EXCLUDE
+
+
+def _build_income_resolution(
+    params: IncomeFilterParams,
+    *,
+    mapping_include_count: int,
+    effective_include_count: int,
+) -> dict[str, Any]:
+    return {
+        "income_mode": params.income_mode,
+        "include_income_matches": list(params.include_income_matches),
+        "exclude_income_matches": list(params.exclude_income_matches),
+        "mapping_include_count": mapping_include_count,
+        "effective_include_count": effective_include_count,
+    }
+
+
+def resolve_household_income(
+    mapping_include_lines: dict[str, dict[str, Any]],
+    mapping_exclude_lines: dict[str, dict[str, Any]],
+    params: IncomeFilterParams,
+    budget_items: list[dict[str, Any]],
+    plans: dict[str, float],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """
+  Resolve effective household income lines and exclusions (FIN-121).
+
+  :param mapping_include_lines: Mapping include lines keyed by budget item id
+  :param mapping_exclude_lines: Mapping exclude lines keyed by budget item id
+  :param params: Income filter parameters
+  :param budget_items: Budget catalog
+  :param plans: Plan amounts for the target month
+  :return: Income lines, excluded income rows, income_resolution block
+  """
+    mapping_include_ids = set(mapping_include_lines.keys())
+    mapping_exclude_ids = set(mapping_exclude_lines.keys())
+
+    preset_ids, income_mode_suffix = _apply_income_mode_preset(
+        params.income_mode, mapping_include_lines
+    )
+    include_override_ids = _resolve_income_override_ids(
+        params.include_income_matches, budget_items
+    )
+    exclude_override_ids = _resolve_income_override_ids(
+        params.exclude_income_matches, budget_items
+    )
+
+    if include_override_ids & exclude_override_ids:
+        raise RuntimeError("income override conflict")
+
+    effective_include_ids = (preset_ids | include_override_ids) - exclude_override_ids
+
+    known_lines = dict(mapping_include_lines)
+    known_lines.update(mapping_exclude_lines)
+    for match in params.include_income_matches:
+        resolved = resolve_article_match(match, budget_items, required=True)
+        assert resolved is not None
+        item_id, article = resolved
+        if item_id not in known_lines:
+            known_lines[item_id] = _line_entry(
+                match, item_id, article, plans.get(item_id, 0.0)
+            )
+
+    line_order: list[str] = []
+    for item_id in mapping_include_lines:
+        if item_id in effective_include_ids and item_id not in line_order:
+            line_order.append(item_id)
+    for item_id in include_override_ids:
+        if item_id in effective_include_ids and item_id not in line_order:
+            line_order.append(item_id)
+
+    income_lines = [known_lines[item_id] for item_id in line_order]
+
+    considered_ids = mapping_include_ids | mapping_exclude_ids | include_override_ids
+    excluded_ids = sorted(considered_ids - effective_include_ids)
+    excluded_income: list[dict[str, Any]] = []
+    for item_id in excluded_ids:
+        line = known_lines[item_id]
+        excluded_income.append(
+            {
+                "article_match": line["article_match"],
+                "budget_item_id": item_id,
+                "article": line["article"],
+                "plan": line["plan"],
+                "reason": _excluded_reason_for_item(
+                    item_id,
+                    exclude_override_ids=exclude_override_ids,
+                    mapping_exclude_ids=mapping_exclude_ids,
+                    mapping_include_ids=mapping_include_ids,
+                    preset_ids=preset_ids,
+                    income_mode_suffix=income_mode_suffix,
+                ),
+            }
+        )
+
+    resolution = _build_income_resolution(
+        params,
+        mapping_include_count=len(mapping_include_ids),
+        effective_include_count=len(income_lines),
+    )
+    return income_lines, excluded_income, resolution
+
+
+def _recalculate_free_remainder_and_shares(payload: dict[str, Any]) -> None:
+    household_total = float((payload.get("household_income") or {}).get("total", 0.0))
+    professional_total = float((payload.get("professional") or {}).get("total", 0.0))
+    shared_total = float((payload.get("shared_fund") or {}).get("total", 0.0))
+    savings_total = float((payload.get("savings") or {}).get("total", 0.0))
+    free_remainder = round_money(
+        household_total - professional_total - shared_total - savings_total
+    )
+    payload["free_remainder"] = free_remainder
+    partners = list(payload.get("partners") or [])
+    partner_count = len(partners)
+    base_share = round_money(free_remainder / partner_count) if partner_count else 0.0
+    for partner in partners:
+        partner["base_share"] = base_share
+    warnings = list(payload.get("warnings") or [])
+    if free_remainder < 0 and "negative_free_remainder" not in warnings:
+        warnings.append("negative_free_remainder")
+    payload["warnings"] = warnings
+    sanity = payload.get("sanity_check")
+    if isinstance(sanity, dict):
+        sanity["two_base_shares"] = round_money(base_share * partner_count)
+        sanity["rounding_delta"] = round_money(
+            sanity["two_base_shares"] - free_remainder
+        )
+        combined = float(sanity.get("combined_legacy_personal", 0.0))
+        sanity["delta_vs_two_base_shares"] = round_money(
+            combined - sanity["two_base_shares"]
+        )
+
+
+def apply_income_filter_to_payload(
+    payload: dict[str, Any],
+    params: IncomeFilterParams,
+    *,
+    budget_items: list[dict[str, Any]],
+    plans: dict[str, float],
+) -> None:
+    """
+  Post-filter normalized API household income (FIN-121).
+
+  :param payload: Normalized tool payload with ``household_income``
+  :param params: Income filter parameters
+  :param budget_items: Budget catalog for override resolution
+  :param plans: Plan amounts for override additions
+  :raises RuntimeError: When income block is missing for filtering
+  """
+    income = payload.get("household_income")
+    if not isinstance(income, dict):
+        raise RuntimeError("household income data missing for income filter")
+    raw_lines = income.get("lines")
+    if raw_lines is None:
+        raise RuntimeError("household income data missing for income filter")
+
+    include_lines: dict[str, dict[str, Any]] = {}
+    for row in list(raw_lines or []):
+        item_id = str(row.get("budget_item_id", ""))
+        if not item_id:
+            continue
+        include_lines[item_id] = {
+            "article_match": str(row.get("article_match", row.get("article", ""))),
+            "budget_item_id": item_id,
+            "article": str(row.get("article", item_id)),
+            "plan": round_money(parse_amount(row.get("plan"))),
+        }
+    exclude_lines: dict[str, dict[str, Any]] = {}
+    for row in list(income.get("excluded_income") or []):
+        item_id = str(row.get("budget_item_id", ""))
+        if not item_id:
+            continue
+        exclude_lines[item_id] = {
+            "article_match": str(row.get("article_match", row.get("article", ""))),
+            "budget_item_id": item_id,
+            "article": str(row.get("article", item_id)),
+            "plan": round_money(parse_amount(row.get("plan"))),
+        }
+
+    lines, excluded, resolution = resolve_household_income(
+        include_lines,
+        exclude_lines,
+        params,
+        budget_items,
+        plans,
+    )
+    income["lines"] = lines
+    income["excluded_income"] = excluded
+    income["total"] = round_money(sum(line["plan"] for line in lines))
+    income["income_resolution"] = resolution
+    payload["household_income"] = income
+    _recalculate_free_remainder_and_shares(payload)
+
+
 def fetch_period_plans(
     api: ApiClient,
     budget_version_id: str,
@@ -202,7 +574,8 @@ def fetch_period_plans(
             "view": "grouped",
         }
     )
-    data = api.get_json(f"/api/v1/budget/plan-actual?{query}")
+    path = f"/api/v1/budget/plan-actual?{query}"
+    data = api.get_json(path)
     plans: dict[str, float] = {}
     for node in data.get("grid_nodes", []):
         if node.get("kind") != "row":
@@ -212,6 +585,107 @@ def fetch_period_plans(
             continue
         plans[str(item_id)] = round_money(parse_amount(node.get("plan_amount")))
     return plans
+
+
+def _raise_api_error(status: int, body: Any, *, method: str, path: str) -> None:
+    raise RuntimeError(format_api_error(status, body, method=method, path=path))
+
+
+def _lookup_fx_rate(api: ApiClient, period: str) -> str:
+    """
+    Load canonical RUB→EUR rate for one month.
+
+    :param api: API client
+    :param period: Month start ``YYYY-MM-DD``
+    :return: Canonical rate string
+    """
+    query = urllib.parse.urlencode({"period": period})
+    path = f"{FX_RATES_PATH}?{query}"
+    status, body = api.request("GET", path)
+    if status != 200 or not isinstance(body, dict):
+        _raise_api_error(status, body, method="GET", path=path)
+    rates = body.get("fx_rates", [])
+    if not isinstance(rates, list) or not rates:
+        raise RuntimeError(
+            f"fx_rate_missing: no planned rate for period {period!r}"
+        )
+    return str(rates[0].get("rate", ""))
+
+
+def fetch_period_plans_eur(
+    api: ApiClient,
+    budget_version_id: str,
+    yyyy_mm: str,
+) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+    """
+    Load EUR plan amounts via flat plan-actual with ``convert_to_eur=true``.
+
+    :param api: API client
+    :param budget_version_id: Budget version UUID
+    :param yyyy_mm: Month ``YYYY-MM``
+    :return: Plan map and optional ``amount_detail`` blocks for non-EUR lines
+    """
+    month_start = period_start(yyyy_mm)
+    query = urllib.parse.urlencode(
+        {
+            "budget_version_id": budget_version_id,
+            "period": month_start,
+            "convert_to_eur": "true",
+        }
+    )
+    path = f"/api/v1/budget/plan-actual?{query}"
+    status, body = api.request("GET", path)
+    if status != 200 or not isinstance(body, dict):
+        _raise_api_error(status, body, method="GET", path=path)
+    rows = body.get("plan_actual_month_rows", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("GET /budget/plan-actual: plan_actual_month_rows is not a list")
+
+    fx_rate: str | None = None
+    plans: dict[str, float] = {}
+    plan_details: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = row.get("budget_item_id")
+        if not item_id:
+            continue
+        item_key = str(item_id)
+        currency = str(row.get("currency", "EUR")).upper()
+        plan_eur = round_money(parse_amount(row.get("plan_amount_eur")))
+        plans[item_key] = plan_eur
+        if currency == "EUR":
+            continue
+        if fx_rate is None:
+            fx_rate = _lookup_fx_rate(api, month_start)
+        plan_details[item_key] = {
+            "native_amount": round_money(parse_amount(row.get("plan_amount"))),
+            "native_currency": currency,
+            "fx_rate": fx_rate,
+            "fx_period": str(row.get("period", month_start)),
+        }
+    return plans, plan_details
+
+
+def fetch_period_plan_data(
+    api: ApiClient,
+    budget_version_id: str,
+    yyyy_mm: str,
+    *,
+    convert_plans_to_eur: bool = True,
+) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+    """
+    Load plan amounts for household contour computation.
+
+    :param api: API client
+    :param budget_version_id: Budget version UUID
+    :param yyyy_mm: Month ``YYYY-MM``
+    :param convert_plans_to_eur: Use FIN-114 EUR conversion pipeline
+    :return: Plan map and optional amount detail blocks
+    """
+    if convert_plans_to_eur:
+        return fetch_period_plans_eur(api, budget_version_id, yyyy_mm)
+    return fetch_period_plans(api, budget_version_id, yyyy_mm), {}
 
 
 def probe_household_api(api: ApiClient, yyyy_mm: str) -> tuple[str, dict[str, Any] | None]:
@@ -239,13 +713,18 @@ def _line_entry(
     item_id: str,
     article: str,
     plan: float,
+    *,
+    amount_detail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    line: dict[str, Any] = {
         "article_match": article_match,
         "budget_item_id": item_id,
         "article": article,
         "plan": plan,
     }
+    if amount_detail is not None:
+        line["amount_detail"] = amount_detail
+    return line
 
 
 def _resolve_contour_lines(
@@ -255,12 +734,14 @@ def _resolve_contour_lines(
     *,
     required: bool,
     warnings: list[str],
+    plan_details: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """
     Resolve mapping entries to plan lines.
 
     :return: Lines and resolved ``budget_item_id`` values
     """
+    details = plan_details or {}
     lines: list[dict[str, Any]] = []
     item_ids: list[str] = []
     for entry in entries:
@@ -271,7 +752,15 @@ def _resolve_contour_lines(
             continue
         item_id, article = resolved
         plan = plans.get(item_id, 0.0)
-        lines.append(_line_entry(match, item_id, article, plan))
+        lines.append(
+            _line_entry(
+                match,
+                item_id,
+                article,
+                plan,
+                amount_detail=details.get(item_id),
+            )
+        )
         item_ids.append(item_id)
     return lines, item_ids
 
@@ -421,6 +910,8 @@ def compute_from_mapping(
     yyyy_mm: str,
     budget_version_id: str,
     mapping_path: Path,
+    income_filter: IncomeFilterParams | None = None,
+    convert_plans_to_eur: bool = True,
 ) -> dict[str, Any]:
     """
     Compute base share from contour mapping and plan amounts.
@@ -432,26 +923,47 @@ def compute_from_mapping(
     :param yyyy_mm: Month ``YYYY-MM``
     :param budget_version_id: Budget version UUID
     :param mapping_path: Path to mapping file used
+    :param income_filter: Optional FIN-121 income composition filter
+    :param convert_plans_to_eur: Use EUR conversion pipeline (FIN-114)
     :return: Tool response dict
     """
+    filter_params = income_filter or parse_income_filter_params()
     validate_mapping_structure(mapping, profile)
     budget_items = load_budget_items(api)
-    plans = fetch_period_plans(api, budget_version_id, yyyy_mm)
+    plans, plan_details = fetch_period_plan_data(
+        api,
+        budget_version_id,
+        yyyy_mm,
+        convert_plans_to_eur=convert_plans_to_eur,
+    )
     warnings: list[str] = []
 
     income_cfg = mapping.get("household_income") or {}
     include_entries = list(income_cfg.get("include") or [])
     exclude_entries = list(income_cfg.get("exclude") or [])
 
-    income_lines, include_ids_list = _resolve_contour_lines(
-        include_entries, budget_items, plans, required=True, warnings=warnings
-    )
+    mapping_include_lines: dict[str, dict[str, Any]] = {}
+    include_ids_list: list[str] = []
+    for entry in include_entries:
+        match = str(entry.get("article_match", ""))
+        resolved = resolve_article_match(match, budget_items, required=True)
+        assert resolved is not None
+        item_id, article = resolved
+        mapping_include_lines[item_id] = _line_entry(
+            match,
+            item_id,
+            article,
+            plans.get(item_id, 0.0),
+            amount_detail=plan_details.get(item_id),
+        )
+        include_ids_list.append(item_id)
+
     tagged: list[tuple[str, str]] = [
         (item_id, "household_income.include") for item_id in include_ids_list
     ]
     include_ids = set(include_ids_list)
 
-    excluded_income: list[dict[str, Any]] = []
+    mapping_exclude_lines: dict[str, dict[str, Any]] = {}
     exclude_ids: set[str] = set()
     for entry in exclude_entries:
         match = str(entry.get("article_match", ""))
@@ -459,20 +971,25 @@ def compute_from_mapping(
         assert resolved is not None
         item_id, article = resolved
         exclude_ids.add(item_id)
-        tagged.append((item_id, "household_income.exclude"))
-        excluded_income.append(
-            {
-                "article_match": match,
-                "budget_item_id": item_id,
-                "article": article,
-                "plan": plans.get(item_id, 0.0),
-                "reason": entry.get("reason"),
-            }
+        mapping_exclude_lines[item_id] = _line_entry(
+            match,
+            item_id,
+            article,
+            plans.get(item_id, 0.0),
+            amount_detail=plan_details.get(item_id),
         )
+        tagged.append((item_id, "household_income.exclude"))
 
     if include_ids & exclude_ids:
         raise RuntimeError("mapping validation: include/exclude overlap")
 
+    income_lines, excluded_income, income_resolution = resolve_household_income(
+        mapping_include_lines,
+        mapping_exclude_lines,
+        filter_params,
+        budget_items,
+        plans,
+    )
     household_income_total = round_money(sum(line["plan"] for line in income_lines))
 
     professional_cfg = mapping.get("professional") or {}
@@ -483,7 +1000,12 @@ def compute_from_mapping(
         partner_id = str(partner["id"])
         entries = list(professional_cfg.get(partner_id) or [])
         lines, prof_ids = _resolve_contour_lines(
-            entries, budget_items, plans, required=True, warnings=warnings
+            entries,
+            budget_items,
+            plans,
+            required=True,
+            warnings=warnings,
+            plan_details=plan_details,
         )
         for item_id in prof_ids:
             tagged.append((item_id, f"professional.{partner_id}"))
@@ -497,6 +1019,7 @@ def compute_from_mapping(
         plans,
         required=True,
         warnings=warnings,
+        plan_details=plan_details,
     )
     for item_id in shared_ids:
         tagged.append((item_id, "shared_fund"))
@@ -508,6 +1031,7 @@ def compute_from_mapping(
         plans,
         required=True,
         warnings=warnings,
+        plan_details=plan_details,
     )
     for item_id in savings_ids:
         tagged.append((item_id, "savings"))
@@ -528,6 +1052,7 @@ def compute_from_mapping(
         plans,
         required=False,
         warnings=warnings,
+        plan_details=plan_details,
     )
     subscription_lines, _ = _resolve_contour_lines(
         list(mapping.get("personal_subscriptions_sanity") or []),
@@ -535,6 +1060,7 @@ def compute_from_mapping(
         plans,
         required=False,
         warnings=warnings,
+        plan_details=plan_details,
     )
 
     free_remainder = round_money(
@@ -569,6 +1095,7 @@ def compute_from_mapping(
             "total": household_income_total,
             "lines": income_lines,
             "excluded_income": excluded_income,
+            "income_resolution": income_resolution,
         },
         "professional": {
             "total": round_money(professional_total),
@@ -598,6 +1125,10 @@ def compute_household_base_share(
     period: str,
     budget_version_id: str,
     mapping_path: str | None = None,
+    income_mode: str | None = None,
+    include_income_matches: list[str] | None = None,
+    exclude_income_matches: list[str] | None = None,
+    convert_plans_to_eur: bool = True,
 ) -> dict[str, Any]:
     """
     MCP entry point: probe API or compute from mapping.
@@ -608,18 +1139,42 @@ def compute_household_base_share(
     :param period: Target month ``YYYY-MM`` or ``YYYYMM``
     :param budget_version_id: Active budget version UUID
     :param mapping_path: Optional mapping file override
+    :param income_mode: Optional FIN-121 income preset
+    :param include_income_matches: Optional include overrides
+    :param exclude_income_matches: Optional exclude overrides
+    :param convert_plans_to_eur: Use EUR conversion pipeline (FIN-114)
     :return: Tool response payload
     """
     yyyy_mm = normalize_period(period)
+    income_filter = parse_income_filter_params(
+        income_mode=income_mode,
+        include_income_matches=include_income_matches,
+        exclude_income_matches=exclude_income_matches,
+    )
     source, api_body = probe_household_api(api, yyyy_mm)
     if source == "api" and api_body is not None:
-        return finalize_api_payload(
+        payload = finalize_api_payload(
             api_body,
             profile=profile,
             base=base,
             period=yyyy_mm,
             budget_version_id=budget_version_id,
         )
+        if income_filter_is_active(income_filter):
+            budget_items = load_budget_items(api)
+            plans, _ = fetch_period_plan_data(
+                api,
+                budget_version_id,
+                yyyy_mm,
+                convert_plans_to_eur=convert_plans_to_eur,
+            )
+            apply_income_filter_to_payload(
+                payload,
+                income_filter,
+                budget_items=budget_items,
+                plans=plans,
+            )
+        return payload
 
     path = Path(mapping_path) if mapping_path else default_mapping_path(profile)
     mapping = load_mapping_file(path)
@@ -631,4 +1186,6 @@ def compute_household_base_share(
         yyyy_mm=yyyy_mm,
         budget_version_id=budget_version_id,
         mapping_path=path,
+        income_filter=income_filter,
+        convert_plans_to_eur=convert_plans_to_eur,
     )

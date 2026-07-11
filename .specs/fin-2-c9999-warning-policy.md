@@ -188,7 +188,7 @@ Final close: `apply_keywords` не снимает guard сам по себе —
 - [x] CLI `fix-month.py` / `monthly-close.py` выровнены
 - [x] Unit-тесты T1–T13 (`tests/test_fin2_c9999_warning_policy.py`; mock, без cand/prod)
 - [x] `mcp-gaps.md` и `close-policy.md` обновлены
-- [x] Норма проверки: smoke только `test`; cand/prod не трогать ([index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md))
+- [x] Норма проверки: smoke на `cand`; `prod` не трогать ([index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md); с 2026-07-09; ранее `test`)
 - [ ] FIN-7 разблокирован для range work после merge
 
 ## Проверка реализации

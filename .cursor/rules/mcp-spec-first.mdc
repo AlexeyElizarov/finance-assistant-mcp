@@ -20,8 +20,8 @@ alwaysApply: true
 | --- | --- | --- | --- |
 | «возьми в работу FIN-N», «take FIN-N», «начни FIN-N» | A–B: In Progress + spec | Jira transition, черновик `.specs/`, открытые решения | `server.py`, `scripts/`, тесты, prod |
 | «утверждаю спеку», «spec ok» | C: approval | Обновить статус спеки (по команде пользователя) | Код без «реализуй» |
-| «реализуй FIN-N», «implement FIN-N» | D: build | Код, unit-тесты, `mcp-gaps.md` | Prod без отдельного ok |
-| «закрой FIN-N», «Done» | E: close | Jira Done, снять `mcp-gap` | — |
+| «реализуй FIN-N», «implement FIN-N» | D: build | Код, unit-тесты, `mcp-gaps.md`; по завершении → Jira **To Test** (`finance-jira-fin` § Ready for test) | Prod без отдельного ok; **Done** без To Test |
+| «закрой FIN-N», «Done» | E: close | Jira Done (из **To Test**), снять `mcp-gap` | — |
 
 **«Возьми в работу» ≠ «реализуй».** Done when в Jira — целевой чеклист, не разрешение кодить в одном шаге.
 
@@ -33,4 +33,5 @@ alwaysApply: true
 | **На ревью** | агент после draft | нет |
 | **Утверждено (YYYY-MM-DD)** | **только пользователь** | да, после явного «реализуй» |
 
-Skill intake/закрытия: `35-finance-assistant/.cursor/skills/finance-jira-fin/SKILL.md`.
+Skill intake/закрытия: `35-finance-assistant/.cursor/skills/finance-jira-fin/SKILL.md`.  
+Написание MCP-спеки: `35-finance-assistant/.cursor/skills/write-mcp-fin-spec/SKILL.md`.

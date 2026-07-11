@@ -52,12 +52,18 @@ from monthly_close_lib import (  # noqa: E402
     UpdatePlanItemRecalculateError,
     act_horizon_periods,
     apply_keywords_file,
+    apply_keywords_payload,
+    ApplyKeywordsError,
+    ApplyKeywordsPartialError,
+    ApplyKeywordsValidationError,
     close_period,
     connect_api,
     c9999_close_guard_error,
+    empty_keywords_changes,
     filter_horizon_periods,
     generate_reports,
     keywords_file_effective,
+    keywords_payload_effective,
     mc_reopen_neighbor_periods,
     parse_period,
     prepare_process_month_orchestrator_flags,
@@ -81,6 +87,11 @@ _query_plan_fact = _load_script_module("query_plan_fact", "query-plan-fact.py")
 _query_transactions = _load_script_module("query_transactions", "query-transactions.py")
 _delete_by_filter = _load_script_module("delete_by_filter", "delete-by-filter.py")
 _household_base_share = _load_script_module("household_base_share", "household_base_share.py")
+_fx_rates = _load_script_module("fx_rates", "fx_rates.py")
+_household_advances = _load_script_module("household_advances", "household_advances.py")
+_household_receivables = _load_script_module("household_receivables", "household_receivables.py")
+_personal_fund_carryover = _load_script_module("personal_fund_carryover", "personal_fund_carryover.py")
+_money_check_report = _load_script_module("money_check_report", "money_check_report.py")
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
 fetch_month_row = _query_plan_fact.fetch_month_row
@@ -89,9 +100,16 @@ iter_months = _query_plan_fact.iter_months
 resolve_budget_item_id = _query_plan_fact.resolve_budget_item_id
 fetch_rows = _query_transactions.fetch_rows
 month_key = _query_transactions.month_key
+normalize_query_args = _query_transactions.normalize_query_args
 build_delete_by_filter_payload = _delete_by_filter.build_payload
 run_delete_by_filter = _delete_by_filter.run_delete_by_filter
 compute_household_base_share = _household_base_share.compute_household_base_share
+list_fx_rates = _fx_rates.list_fx_rates
+upsert_fx_rate = _fx_rates.upsert_fx_rate
+run_household_advances = _household_advances.run_household_advances
+run_household_receivables = _household_receivables.run_household_receivables
+compute_personal_fund_carryover = _personal_fund_carryover.compute_personal_fund_carryover
+compute_money_check_report = _money_check_report.compute_money_check_report
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
@@ -283,6 +301,67 @@ def _handle_list_c9999(arguments: dict[str, Any]) -> list[types.TextContent]:
     return _json_text({"ok": True, "profile": profile, "base": base, **payload})
 
 
+def _handle_apply_keywords(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    period = parse_period(str(arguments["period"]))
+    keywords_file = arguments.get("keywords_file")
+    payload = arguments.get("payload")
+    if bool(keywords_file) == bool(payload):
+        raise ValueError("exactly one of keywords_file or payload is required")
+    derive_flag = bool(arguments.get("derive", True))
+
+    api, base = get_session(profile, arguments.get("base"))
+    if keywords_file:
+        raw = json.loads(Path(str(keywords_file)).read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ApplyKeywordsValidationError("payload root must be an object")
+        effective = keywords_payload_effective(raw)
+        try:
+            changes = apply_keywords_file(api, Path(str(keywords_file)))
+        except ApplyKeywordsPartialError as exc:
+            return _json_text(
+                {
+                    "ok": False,
+                    "profile": profile,
+                    "base": base,
+                    "period": period.yyyy_mm,
+                    "effective": effective,
+                    "changes": exc.partial_changes,
+                    "error": str(exc),
+                }
+            )
+    else:
+        if not isinstance(payload, dict):
+            raise ApplyKeywordsValidationError("payload must be an object")
+        effective = keywords_payload_effective(payload)
+        try:
+            changes = apply_keywords_payload(api, payload)
+        except ApplyKeywordsPartialError as exc:
+            return _json_text(
+                {
+                    "ok": False,
+                    "profile": profile,
+                    "base": base,
+                    "period": period.yyyy_mm,
+                    "effective": effective,
+                    "changes": exc.partial_changes,
+                    "error": str(exc),
+                }
+            )
+
+    body: dict[str, Any] = {
+        "ok": True,
+        "profile": profile,
+        "base": base,
+        "period": period.yyyy_mm,
+        "effective": effective,
+        "changes": changes,
+    }
+    if derive_flag and effective:
+        body["derive"] = run_derive(api, period)
+    return _json_text(body)
+
+
 def _handle_verify_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     period = parse_period(str(arguments["period"]))
@@ -354,10 +433,22 @@ def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
     keywords_effective = False
     if apply_keywords:
         kw_path = Path(str(apply_keywords))
-        keywords_effective = keywords_file_effective(kw_path)
-        added = apply_keywords_file(api, kw_path)
+        raw = json.loads(kw_path.read_text(encoding="utf-8"))
+        keywords_effective = (
+            keywords_payload_effective(raw) if isinstance(raw, dict) else False
+        )
+        try:
+            changes = apply_keywords_file(api, kw_path)
+        except ApplyKeywordsPartialError as exc:
+            log["steps"]["keywords_effective"] = keywords_effective
+            log["steps"]["keywords_changes"] = exc.partial_changes
+            log["steps"]["keywords_added"] = exc.partial_changes["categories_added"]
+            return _json_text({"ok": False, "error": str(exc), "log": log})
+        except ApplyKeywordsError as exc:
+            return _json_text({"ok": False, "error": str(exc), "log": log})
         log["steps"]["keywords_effective"] = keywords_effective
-        log["steps"]["keywords_added"] = added
+        log["steps"]["keywords_changes"] = changes
+        log["steps"]["keywords_added"] = changes["categories_added"]
 
     log["steps"]["derive"] = run_derive(api, period)
     verify = verify_period(api, period, vid)
@@ -471,6 +562,98 @@ def _handle_household_base_share(arguments: dict[str, Any]) -> list[types.TextCo
         period=period,
         budget_version_id=budget_version_id,
         mapping_path=arguments.get("mapping_path"),
+        income_mode=arguments.get("income_mode"),
+        include_income_matches=arguments.get("include_income_matches"),
+        exclude_income_matches=arguments.get("exclude_income_matches"),
+        convert_plans_to_eur=bool(arguments.get("convert_plans_to_eur", True)),
+    )
+    return _json_text(payload)
+
+
+def _handle_list_fx_rates(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_fx_rates(
+        api,
+        profile=profile,
+        base=base,
+        period=arguments.get("period"),
+        period_from=arguments.get("period_from"),
+        period_to=arguments.get("period_to"),
+        from_currency=arguments.get("from_currency"),
+        to_currency=arguments.get("to_currency"),
+    )
+    return _json_text(payload)
+
+
+def _handle_upsert_fx_rate(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = upsert_fx_rate(
+        api,
+        profile=profile,
+        base=base,
+        period=str(arguments["period"]),
+        rate=str(arguments["rate"]),
+        from_currency=arguments.get("from_currency"),
+        to_currency=arguments.get("to_currency"),
+    )
+    return _json_text(payload)
+
+
+def _handle_household_advances(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    action = str(arguments["action"])
+    payload = run_household_advances(profile, action, dict(arguments))
+    return _json_text(payload)
+
+
+def _handle_household_receivables(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    action = str(arguments["action"])
+    payload = run_household_receivables(profile, action, dict(arguments))
+    return _json_text(payload)
+
+
+def _handle_personal_fund_carryover(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    closed_period = str(arguments["closed_period"])
+    budget_version_id = str(
+        arguments.get("budget_version_id") or active_budget_version_id(api)
+    )
+    payload = compute_personal_fund_carryover(
+        api,
+        profile=profile,
+        base=base,
+        closed_period=closed_period,
+        budget_version_id=budget_version_id,
+        target_period=arguments.get("target_period"),
+        mapping_path=arguments.get("mapping_path"),
+        dry_run=bool(arguments.get("dry_run", False)),
+        mark_advances_deducted=bool(arguments.get("mark_advances_deducted", True)),
+        allow_non_final=bool(arguments.get("allow_non_final", False)),
+        incoming_carryover_override=arguments.get("incoming_carryover_override"),
+    )
+    return _json_text(payload)
+
+
+def _handle_money_check_report(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    budget_version_id = str(
+        arguments.get("budget_version_id") or active_budget_version_id(api)
+    )
+    payload = compute_money_check_report(
+        api,
+        profile=profile,
+        base=base,
+        budget_version_id=budget_version_id,
+        check_period=arguments.get("check_period"),
+        prior_period=arguments.get("prior_period"),
+        as_of_period=arguments.get("as_of_period"),
+        mapping_path=arguments.get("mapping_path"),
+        include_advance_breakdown=bool(arguments.get("include_advance_breakdown", True)),
     )
     return _json_text(payload)
 
@@ -599,28 +782,38 @@ def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextConten
 def _handle_create_plan_item(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
-    required = ("amount", "start_period")
-    missing = [field for field in required if field not in arguments]
-    if missing:
-        raise ValueError(f"missing required fields: {', '.join(missing)}")
+    if "amount" not in arguments:
+        raise ValueError("missing required fields: amount")
     if not arguments.get("article") and not arguments.get("budget_item_id"):
         raise ValueError("article or budget_item_id is required")
+    provided = frozenset(
+        key
+        for key in ("start_period", "end_period", "periodicity", "forecast_method", "planning_type")
+        if key in arguments
+    )
     end_raw = arguments.get("end_period")
     end_period = parse_period(str(end_raw)) if end_raw else None
+    start_raw = arguments.get("start_period")
+    start_period = parse_period(str(start_raw)) if start_raw else None
+    explicit_planning_type = (
+        str(arguments["planning_type"]) if "planning_type" in arguments else None
+    )
     try:
         result = create_plan_item(
             api,
             arguments["amount"],
-            parse_period(str(arguments["start_period"])),
+            start_period,
             article=str(arguments["article"]) if arguments.get("article") else None,
             budget_item_id=str(arguments["budget_item_id"])
             if arguments.get("budget_item_id")
             else None,
-            planning_type=str(arguments.get("planning_type") or "REG"),
+            planning_type=explicit_planning_type,
+            forecast_method=str(arguments.get("forecast_method") or "MAN"),
             currency=str(arguments.get("currency") or "EUR"),
             periodicity=str(arguments.get("periodicity") or "M"),
             end_period=end_period,
             recalculate=bool(arguments.get("recalculate", True)),
+            provided_fields=provided,
         )
     except CreatePlanItemRecalculateError as exc:
         return _json_text(
@@ -638,14 +831,17 @@ def _handle_create_plan_item(arguments: dict[str, Any]) -> list[types.TextConten
 def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
-    args = SimpleNamespace(
+    args = normalize_query_args(
         date_from=arguments.get("date_from"),
         date_to=arguments.get("date_to"),
         indicator=arguments.get("indicator"),
+        period=arguments.get("period"),
+        accounting_period=arguments.get("accounting_period"),
         category=arguments.get("category"),
+        transaction_category=arguments.get("transaction_category"),
         provider=arguments.get("provider"),
         description=arguments.get("description"),
-        contains=list(arguments.get("contains") or []),
+        contains=arguments.get("contains"),
     )
     rows = fetch_rows(api, args)
     group_by = arguments.get("group_by")
@@ -912,6 +1108,34 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="apply_keywords",
+            description=(
+                "Применить keywords к категориям, статьям бюджета и проектам "
+                "(unified или legacy JSON; FIN-16)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {"type": "string", "description": "YYYY-MM для derive"},
+                    "keywords_file": {
+                        "type": "string",
+                        "description": "Путь к JSON keywords",
+                    },
+                    "payload": {
+                        "type": "object",
+                        "description": "Inline keywords JSON (unified или legacy)",
+                    },
+                    "derive": {
+                        "type": "boolean",
+                        "description": "POST derive после apply, если effective=true",
+                    },
+                },
+                "required": ["period"],
+            },
+        ),
+        types.Tool(
             name="verify_month",
             description=(
                 "Verify месяца: MC from_17th, classification-summary, readiness (без import/close)."
@@ -959,7 +1183,7 @@ async def list_tools() -> list[types.Tool]:
                     "skip_import": {"type": "boolean"},
                     "apply_keywords": {
                         "type": "string",
-                        "description": "Путь к JSON keywords (C9999)",
+                        "description": "Путь к unified/legacy JSON keywords",
                     },
                     "close": {
                         "type": "boolean",
@@ -1005,9 +1229,10 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="household_base_share",
             description=(
-                "Базовая доля личных фондов (FIN-103): контуры household income, "
+                "Базовая доля личных фондов (FIN-103, FIN-121, FIN-114): контуры household income, "
                 "professional, shared fund, savings → free_remainder и base_share "
-                "на партнёра. Interim mapping JSON; probe FIN-102 API при наличии."
+                "на партнёра. Interim mapping JSON; income_mode / overrides; "
+                "convert_plans_to_eur (default true) через API FX."
             ),
             inputSchema={
                 "type": "object",
@@ -1023,22 +1248,280 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Override пути к household-contour-mapping JSON",
                     },
+                    "convert_plans_to_eur": {
+                        "type": "boolean",
+                        "description": (
+                            "EUR plan amounts via plan-actual convert_to_eur (default true); "
+                            "false = legacy grouped fetch"
+                        ),
+                    },
+                    "income_mode": {
+                        "type": "string",
+                        "description": (
+                            "Preset состава доходов: mapping_default, salary_only, "
+                            "salary_plus_partner_contribution"
+                        ),
+                    },
+                    "include_income_matches": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Доп. article_match для включения в household income",
+                    },
+                    "exclude_income_matches": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "article_match для исключения из household income",
+                    },
                 },
                 "required": ["period"],
             },
         ),
         types.Tool(
-            name="query_transactions",
-            description="Выборка транзакций (GET /transactions) с фильтрами и group-by month.",
+            name="list_fx_rates",
+            description=(
+                "Плановые курсы RUB→EUR (FIN-114): GET /api/v1/fx-rates — список по period "
+                "или period_from/period_to."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "profile": PROFILE_SCHEMA,
                     "base": BASE_SCHEMA,
+                    "period": {"type": "string", "description": "YYYY-MM или YYYY-MM-DD"},
+                    "period_from": {"type": "string", "description": "YYYY-MM — начало диапазона"},
+                    "period_to": {"type": "string", "description": "YYYY-MM — конец диапазона"},
+                    "from_currency": {"type": "string", "description": "Default RUB"},
+                    "to_currency": {"type": "string", "description": "Default EUR"},
+                },
+            },
+        ),
+        types.Tool(
+            name="upsert_fx_rate",
+            description=(
+                "Сохранить плановый курс RUB→EUR на месяц (FIN-114): PUT /api/v1/fx-rates."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {
+                        "type": "string",
+                        "description": "YYYY-MM или YYYY-MM-DD",
+                    },
+                    "rate": {"type": "string", "description": "Плановый курс (> 0)"},
+                    "from_currency": {"type": "string", "description": "Default RUB"},
+                    "to_currency": {"type": "string", "description": "Default EUR"},
+                },
+                "required": ["period", "rate"],
+            },
+        ),
+        types.Tool(
+            name="household_advances",
+            description=(
+                "Журнал авансов на базовые потребности (FIN-115): register, list, void, "
+                "mark_deducted. Interim JSON ledger per profile; не проверяет остаток "
+                "личного фонда и статус закрытия месяца."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "action": {
+                        "type": "string",
+                        "enum": ["register", "list", "void", "mark_deducted"],
+                    },
+                    "partner_id": {"type": "string"},
+                    "issue_period": {"type": "string", "description": "YYYY-MM"},
+                    "deduct_in_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — фильтр list",
+                    },
+                    "amount": {"type": "number", "description": "EUR, register only"},
+                    "note": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "deducted", "void"],
+                        "description": "Фильтр list",
+                    },
+                    "id": {"type": "string", "description": "Entry id для void"},
+                    "reason": {"type": "string", "description": "Причина void"},
+                },
+                "required": ["action"],
+            },
+        ),
+        types.Tool(
+            name="personal_fund_carryover",
+            description=(
+                "Перенос остатков/перерасхода личного фонда после FINAL close (FIN-105): "
+                "carryover, advance_deduction, available_personal_fund при target_period; "
+                "persist carryover log и mark_deducted для open advances issue_period=closed_period."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "closed_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — закрытый учётный месяц",
+                    },
+                    "target_period": {
+                        "type": "string",
+                        "description": (
+                            "YYYY-MM — месяц для available_personal_fund; "
+                            "omit → target_period: null в ответе"
+                        ),
+                    },
+                    "budget_version_id": {"type": "string"},
+                    "mapping_path": {
+                        "type": "string",
+                        "description": "Override пути к household-contour-mapping JSON",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "Только расчёт; без persist log и mark_deducted",
+                    },
+                    "mark_advances_deducted": {
+                        "type": "boolean",
+                        "description": "После persist log — mark_deducted (default true)",
+                    },
+                    "allow_non_final": {
+                        "type": "boolean",
+                        "description": "Разрешить non-final methodology_status с warning",
+                    },
+                    "incoming_carryover_override": {
+                        "type": "object",
+                        "description": (
+                            "partner_id → EUR; обязателен для closed_period=2026-06 без prior log"
+                        ),
+                        "additionalProperties": {"type": "number"},
+                    },
+                },
+                "required": ["closed_period"],
+            },
+        ),
+        types.Tool(
+            name="money_check_report",
+            description=(
+                "Еженедельный household money check (FIN-104): остатки личных фондов, "
+                "methodology prior/check month, C9999/? counts, advances, receivables, "
+                "carryover (log или dry_run FIN-105). Read-only."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "check_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — месяц лимита и факта трат (default UTC month)",
+                    },
+                    "prior_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — prior month для methodology/carryover",
+                    },
+                    "as_of_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — ref month для stale advances / overdue",
+                    },
+                    "budget_version_id": {"type": "string"},
+                    "mapping_path": {
+                        "type": "string",
+                        "description": "Override пути к household-contour-mapping JSON",
+                    },
+                    "include_advance_breakdown": {
+                        "type": "boolean",
+                        "description": "Включить advances.totals_by_issue_period (default true)",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="household_receivables",
+            description=(
+                "Журнал займов третьим лицам / дебиторка (FIN-116): register, record_repayment, "
+                "list, extend, write_off, mark_gift. Interim JSON ledger per profile."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "register",
+                            "record_repayment",
+                            "list",
+                            "extend",
+                            "write_off",
+                            "mark_gift",
+                        ],
+                    },
+                    "lender_id": {"type": "string"},
+                    "borrower_label": {"type": "string"},
+                    "amount": {"type": "number", "description": "EUR, register only"},
+                    "source": {
+                        "type": "string",
+                        "enum": ["personal", "shared"],
+                    },
+                    "issue_period": {"type": "string", "description": "YYYY-MM"},
+                    "due_period": {"type": "string", "description": "YYYY-MM"},
+                    "new_due_period": {
+                        "type": "string",
+                        "description": "YYYY-MM, extend only",
+                    },
+                    "receipt_period": {
+                        "type": "string",
+                        "description": "YYYY-MM, record_repayment only",
+                    },
+                    "as_of_period": {
+                        "type": "string",
+                        "description": "YYYY-MM для is_overdue на list",
+                    },
+                    "note": {"type": "string"},
+                    "transaction_key": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "repaid", "written_off", "gift"],
+                        "description": "Фильтр list",
+                    },
+                    "id": {"type": "string", "description": "Entry id"},
+                    "reason": {"type": "string", "description": "write_off / mark_gift audit"},
+                },
+                "required": ["action"],
+            },
+        ),
+        types.Tool(
+            name="query_transactions",
+            description=(
+                "Выборка транзакций (GET /api/v1/transactions) с фильтрами учётного периода, "
+                "категории и group-by month."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "period": {
+                        "type": "string",
+                        "description": "Учётный месяц YYYY-MM (mutually exclusive с accounting_period)",
+                    },
+                    "accounting_period": {
+                        "type": "string",
+                        "description": "Учётный месяц YYYY-MM или YYYYMM (REST-aligned alias)",
+                    },
                     "date_from": {"type": "string"},
                     "date_to": {"type": "string"},
                     "indicator": {"type": "string", "enum": ["D", "C"]},
-                    "category": {"type": "string"},
+                    "category": {
+                        "type": "string",
+                        "description": "transaction_category, напр. C9999",
+                    },
+                    "transaction_category": {
+                        "type": "string",
+                        "description": "Alias для category",
+                    },
                     "provider": {"type": "string"},
                     "description": {"type": "string"},
                     "contains": {
@@ -1103,6 +1586,7 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Создать статью бюджета и REG plan-item в ACT-версии "
                 "(POST /budget/items + POST /budget/plan-items). "
+                "Для RUB: задайте currency=RUB и номинал в ₽, затем upsert_fx_rate на месяц. "
                 "Default recalculate=true."
             ),
             inputSchema={
@@ -1148,8 +1632,10 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="create_plan_item",
             description=(
-                "POST REG plan-item на существующую статью в ACT-версии "
-                "(bounded / one-off annual fee). Default recalculate=true."
+                "POST REG or IRR plan-item на существующую статью в ACT-версии. "
+                "REG: start_period (+ optional end_period). "
+                "IRR: forecast_method MAN/AVG (default MAN). "
+                "planning_type infer из статьи. Default recalculate=true."
             ),
             inputSchema={
                 "type": "object",
@@ -1158,13 +1644,23 @@ async def list_tools() -> list[types.Tool]:
                     "base": BASE_SCHEMA,
                     "article": {"type": "string", "description": "Подстрока имени статьи"},
                     "budget_item_id": {"type": "string", "description": "UUID статьи"},
-                    "amount": {"type": ["string", "number"], "description": "Сумма REG (>= 0)"},
-                    "start_period": {"type": "string", "description": "YYYY-MM — начало REG"},
+                    "amount": {"type": ["string", "number"], "description": "Сумма plan-item (>= 0)"},
+                    "start_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — начало REG (обяз. для REG)",
+                    },
                     "end_period": {
                         "type": "string",
                         "description": "YYYY-MM — конец REG (ops: start=end для one-off)",
                     },
-                    "planning_type": {"type": "string", "description": "Только REG (default REG)"},
+                    "planning_type": {
+                        "type": "string",
+                        "description": "REG или IRR; default — из статьи",
+                    },
+                    "forecast_method": {
+                        "type": "string",
+                        "description": "IRR: MAN или AVG (default MAN)",
+                    },
                     "currency": {"type": "string", "description": "Валюта (default EUR)"},
                     "periodicity": {"type": "string", "description": "REG periodicity (default M)"},
                     "recalculate": {
@@ -1172,7 +1668,7 @@ async def list_tools() -> list[types.Tool]:
                         "description": "POST projections/recalculate (default true)",
                     },
                 },
-                "required": ["amount", "start_period"],
+                "required": ["amount"],
             },
         ),
         types.Tool(
@@ -1247,11 +1743,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "period_status_report": _handle_period_status_report,
         "reopen_periods": _handle_reopen_periods,
         "list_c9999": _handle_list_c9999,
+        "apply_keywords": _handle_apply_keywords,
         "verify_month": _handle_verify_month,
         "process_month": _handle_process_month,
         "fix_month": _handle_process_month,  # deprecated alias
         "query_plan_fact": _handle_query_plan_fact,
         "household_base_share": _handle_household_base_share,
+        "list_fx_rates": _handle_list_fx_rates,
+        "upsert_fx_rate": _handle_upsert_fx_rate,
+        "household_advances": _handle_household_advances,
+        "personal_fund_carryover": _handle_personal_fund_carryover,
+        "money_check_report": _handle_money_check_report,
+        "household_receivables": _handle_household_receivables,
         "put_transaction_overrides": _handle_put_transaction_overrides,
         "upsert_expense_project": _handle_upsert_expense_project,
         "create_budget_item": _handle_create_budget_item,

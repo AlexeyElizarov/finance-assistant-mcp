@@ -107,10 +107,14 @@ def run_fix(args: argparse.Namespace) -> int:
     keywords_effective = False
     if args.apply_keywords:
         keywords_effective = keywords_file_effective(args.apply_keywords)
-        added = apply_keywords_file(api, args.apply_keywords)
-        print(f"keywords added: {len(added)} (effective={keywords_effective})")
+        changes = apply_keywords_file(api, args.apply_keywords)
+        print(
+            f"keywords changes: +{len(changes['categories_added'])} categories "
+            f"(effective={keywords_effective})"
+        )
         log["steps"]["keywords_effective"] = keywords_effective
-        log["steps"]["keywords_added"] = added
+        log["steps"]["keywords_changes"] = changes
+        log["steps"]["keywords_added"] = changes["categories_added"]
 
     log["steps"]["derive"] = run_derive(api, period)
 

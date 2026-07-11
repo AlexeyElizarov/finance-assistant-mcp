@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from monthly_close_lib import (
     c9999_close_guard_error,
+    empty_keywords_changes,
     keywords_payload_effective,
     parse_period,
     prepare_process_month_orchestrator_flags,
@@ -288,7 +289,8 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
             "server.get_session",
             return_value=(MagicMock(), "http://127.0.0.1:8000"),
         ), patch("server.keywords_file_effective", return_value=True), patch(
-            "server.apply_keywords_file", return_value=[{"category": "C0005", "keyword": "x"}]
+            "server.apply_keywords_file",
+            return_value={"categories_added": [{"category": "C0005", "keyword": "x"}], "categories_removed": [], "budget_items_added": [], "budget_items_removed": [], "projects_added": [], "projects_removed": []},
         ), patch("server.close_period", return_value=(200, {})) as close_period:
             working.__truediv__.return_value = MagicMock()
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
@@ -322,7 +324,7 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
             "server.get_session",
             return_value=(MagicMock(), "http://127.0.0.1:8000"),
         ), patch("server.keywords_file_effective", return_value=True), patch(
-            "server.apply_keywords_file", return_value=[]
+            "server.apply_keywords_file", return_value=empty_keywords_changes(),
         ), patch("server.close_period") as close_period:
             working.__truediv__.return_value = MagicMock()
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
@@ -355,7 +357,7 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
         ), patch(
             "server.get_session",
             return_value=(MagicMock(), "http://127.0.0.1:8000"),
-        ), patch("server.apply_keywords_file", return_value=[]), patch(
+        ), patch("server.apply_keywords_file", return_value=empty_keywords_changes()), patch(
             "server.close_period"
         ) as close_period:
             working.__truediv__.return_value = MagicMock()
