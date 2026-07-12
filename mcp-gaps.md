@@ -19,7 +19,7 @@
 | `list_c9999` | Expense C9999 строки за месяц для proposal table (**FIN-17** ✓) |
 | `process_month` | Reopen → import → derive → verify → optional close/PDF; preset `monthly_close_prepare` (**FIN-31** ✓); C9999 warn vs close guard (**FIN-2** ✓) |
 | `reopen_periods` | Reopen closed периодов |
-| `query_plan_fact` | План/факт по статье |
+| `query_plan_fact` | План/факт по статье; enriched errors при not-found/ambiguous article (**FIN-122** ✓) |
 | `household_base_share` | Базовая доля личных фондов; `income_mode` / overrides (FIN-103, FIN-121); `convert_plans_to_eur` (FIN-114) |
 | `list_fx_rates` | Плановые курсы RUB→EUR — GET /api/v1/fx-rates (**FIN-114** ✓) |
 | `upsert_fx_rate` | Сохранить плановый курс на месяц — PUT /api/v1/fx-rates (**FIN-114** ✓) |
@@ -30,7 +30,7 @@
 | `query_transactions` | Выборка транзакций: `period` / `accounting_period`, `category`, group-by month |
 | `delete_transactions_by_filter` | Maintenance delete по фильтру (**BLG-084** ✓) |
 | `apply_keywords` | Unified/legacy JSON: категории, статьи бюджета, проекты + optional derive (**FIN-16** ✓) |
-| `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓) |
+| `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓, **FIN-120** ✓) |
 | `upsert_expense_project` | Создать или полностью заменить проект расходов (**FIN-107** ✓) |
 | `update_plan_item` | Изменить plan-item: сумма и/или bounded horizon + recalculate (**FIN-108** ✓, **FIN-110** ✓) |
 | `create_budget_item` | Создать статью + REG plan-item в ACT-версии + recalculate (**FIN-109** ✓) |

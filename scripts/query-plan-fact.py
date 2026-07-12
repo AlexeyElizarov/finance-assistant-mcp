@@ -8,14 +8,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+from typing import Any
 
 from finance_api_client import ApiClient, discover_api_base
 
 PROFILE_CHOICES = ("test", "cand", "prod")
+_CANDIDATE_LIMIT = 5
+_CATEGORY_ID_RE = re.compile(r"^[PCSI]\d{3,5}$")
 BOOTSTRAP_HINT = (
     "Запустите сервер: $env:FINANCE_DATA_PROFILE = '{profile}'; "
     "$env:FINANCE_WEB_PORT = '{port}'; "
@@ -155,6 +160,260 @@ def active_budget_version_id(api: ApiClient) -> str:
     raise RuntimeError("Не найдена версия бюджета (ACT/DRA)")
 
 
+def normalize_match_text(text: str) -> str:
+    """
+    Normalize article or budget item name for case-insensitive match (FIN-122 D-08).
+
+    :param text: Raw label
+    :return: Stripped, whitespace-collapsed, casefolded string
+    """
+    return " ".join(text.strip().split()).casefold()
+
+
+def _is_category_id_shaped(value: str) -> bool:
+    """
+    Return whether ``value`` looks like an operation category id (FIN-122 D-04).
+
+    :param value: Candidate category id or article token
+    :return: True when value matches ``^[PCSI]\\d{3,5}$``
+    """
+    return bool(_CATEGORY_ID_RE.match(value.strip()))
+
+
+def _levenshtein_at_most_one(left: str, right: str) -> bool:
+    """
+    Return whether standard Levenshtein distance is at most one.
+
+    :param left: First string
+    :param right: Second string
+    :return: True for distance 0 or 1 (insert/delete/replace only)
+    """
+    if left == right:
+        return True
+    left_len = len(left)
+    right_len = len(right)
+    if abs(left_len - right_len) > 1:
+        return False
+    if left_len == right_len:
+        return sum(1 for a, b in zip(left, right, strict=True) if a != b) == 1
+    if left_len > right_len:
+        left, right = right, left
+        left_len, right_len = right_len, left_len
+    index_left = 0
+    index_right = 0
+    skipped = False
+    while index_left < left_len and index_right < right_len:
+        if left[index_left] == right[index_right]:
+            index_left += 1
+            index_right += 1
+        elif skipped:
+            return False
+        else:
+            skipped = True
+            index_right += 1
+    return True
+
+
+def _active_budget_items(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Filter ACT budget items from catalog response rows.
+
+    :param catalog: Raw ``budget_items`` list from API
+    :return: Items with ``status == \"ACT\"``
+    """
+    return [row for row in catalog if str(row.get("status", "")).strip().upper() == "ACT"]
+
+
+def _item_row_key(item: dict[str, Any]) -> tuple[str, str]:
+    """
+    Sort key for ambiguous rows (FIN-122 D-09).
+
+    :param item: Budget item dict
+    :return: Tuple of casefolded name and id
+    """
+    return (str(item.get("name", "")).casefold(), str(item["id"]))
+
+
+def sort_ambiguous_rows(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Sort ambiguous matches for stable error output (FIN-122 D-09).
+
+    :param items: Matching budget items
+    :return: Sorted copy
+    """
+    return sorted(items, key=_item_row_key)
+
+
+def _candidate_row_key(item_score: tuple[dict[str, Any], float]) -> tuple[float, str, str]:
+    item, score = item_score
+    return (-score, str(item.get("name", "")).casefold(), str(item["id"]))
+
+
+def sort_candidate_rows(
+    items_with_scores: list[tuple[dict[str, Any], float]],
+) -> list[tuple[dict[str, Any], float]]:
+    """
+    Sort not-found candidates for stable error output (FIN-122 D-09).
+
+    :param items_with_scores: Budget items with ranking score
+    :return: Sorted copy
+    """
+    return sorted(items_with_scores, key=_candidate_row_key)
+
+
+def _format_item_line(item: dict[str, Any]) -> str:
+    """
+    Format one budget item line for enriched tool errors.
+
+    :param item: Budget item dict
+    :return: Single bullet line
+    """
+    item_id = str(item["id"])
+    name = str(item.get("name", item_id))
+    category_id = str(item.get("operation_category_id", ""))
+    return f"  - {item_id} | {name} | категория {category_id}"
+
+
+def _longest_shared_prefix_example(items: list[dict[str, Any]]) -> str:
+    """
+    Build substring hint from ambiguous match names (FIN-122).
+
+    :param items: Ambiguous budget items
+    :return: Shared prefix example or truncated longest name
+    """
+    normalized_names = [normalize_match_text(str(item.get("name", ""))) for item in items]
+    if not normalized_names:
+        return ""
+    prefix = normalized_names[0]
+    for name in normalized_names[1:]:
+        limit = min(len(prefix), len(name))
+        shared = 0
+        while shared < limit and prefix[shared] == name[shared]:
+            shared += 1
+        prefix = prefix[:shared]
+    if len(prefix) >= 4:
+        return prefix
+    longest = max(normalized_names, key=len)
+    if len(longest) <= 20:
+        return longest
+    return f"{longest[:20]}…"
+
+
+def format_ambiguous_article_error(article: str, matches: list[dict[str, Any]]) -> str:
+    """
+    Build enriched ambiguous article tool error (FIN-122).
+
+    :param article: Original article argument
+    :param matches: Ambiguous budget items (pre-sorted)
+    :return: Multi-line error message
+    """
+    lines = [
+        f"Неоднозначно article {article!r} — найдено {len(matches)} статей:",
+        "",
+    ]
+    lines.extend(_format_item_line(item) for item in matches)
+    prefix_example = _longest_shared_prefix_example(matches)
+    lines.append("")
+    lines.append(
+        "Уточните: budget_item_id=<uuid> одного из вариантов "
+        f"или более длинная подстрока (напр. {prefix_example}).",
+    )
+    return "\n".join(lines)
+
+
+def format_not_found_article_error(
+    article: str,
+    candidates: list[dict[str, Any]],
+) -> str:
+    """
+    Build enriched not-found article tool error (FIN-122).
+
+    :param article: Original article argument
+    :param candidates: Ranked candidate items (pre-sorted, max 5)
+    :return: Multi-line error message
+    """
+    lines = [f"Статья бюджета не найдена по article {article!r}."]
+    if candidates:
+        lines.extend(["", "Возможные статьи (до 5):"])
+        lines.extend(_format_item_line(item) for item in candidates)
+    lines.append("")
+    lines.append("Уточните: budget_item_id=<uuid> или более точная подстрока имени.")
+    return "\n".join(lines)
+
+
+def _score_article_candidate(
+    article: str,
+    needle: str,
+    item: dict[str, Any],
+) -> float:
+    """
+    Compute ranking score for one not-found candidate (FIN-122).
+
+    :param article: Original article argument
+    :param needle: Normalized article text
+    :param item: Budget item dict
+    :return: Score; 0 when item is not a candidate
+    """
+    category_id = str(item.get("operation_category_id", "")).strip()
+    article_stripped = article.strip()
+    name_normalized = normalize_match_text(str(item.get("name", "")))
+    scores: list[float] = []
+
+    if category_id == article_stripped:
+        scores.append(100.0)
+
+    if (
+        _is_category_id_shaped(article_stripped)
+        and _is_category_id_shaped(category_id)
+        and _levenshtein_at_most_one(category_id, article_stripped)
+    ):
+        scores.append(90.0)
+
+    if name_normalized == needle:
+        scores.append(80.0)
+    if needle and needle in name_normalized:
+        scores.append(70.0)
+
+    if len(needle) >= 3:
+        for token in name_normalized.split():
+            if token.startswith(needle):
+                scores.append(60.0)
+                break
+
+    ratio = SequenceMatcher(None, needle, name_normalized).ratio()
+    if ratio >= 0.6:
+        scores.append(50.0 + ratio * 10.0)
+
+    return max(scores) if scores else 0.0
+
+
+def rank_article_candidates(
+    article: str,
+    active_catalog: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Rank and trim not-found candidate budget items (FIN-122 D-01).
+
+    :param article: Original article argument
+    :param active_catalog: ACT budget items
+    :return: Up to five candidate items
+    """
+    needle = normalize_match_text(article)
+    scored: list[tuple[dict[str, Any], float]] = []
+    seen_ids: set[str] = set()
+    for item in active_catalog:
+        item_id = str(item["id"])
+        if item_id in seen_ids:
+            continue
+        score = _score_article_candidate(article, needle, item)
+        if score <= 0:
+            continue
+        seen_ids.add(item_id)
+        scored.append((item, score))
+    sorted_rows = sort_candidate_rows(scored)
+    return [item for item, _score in sorted_rows[:_CANDIDATE_LIMIT]]
+
+
 def resolve_budget_item_id(api: ApiClient, article: str | None, budget_item_id: str | None) -> tuple[str, str]:
     """
     Resolve article label to budget item id.
@@ -163,28 +422,48 @@ def resolve_budget_item_id(api: ApiClient, article: str | None, budget_item_id: 
     :param article: Substring of article name
     :param budget_item_id: Explicit UUID
     :return: Tuple of item id and display name
+    :raises RuntimeError: When article is not found or ambiguous
+    :raises ValueError: When neither article nor budget_item_id is provided
     """
     if budget_item_id:
         item = api.get_json(f"/api/v1/budget/items/{budget_item_id}")
         return budget_item_id, str(item.get("name", budget_item_id))
 
     if not article:
-        raise ValueError("Укажите --article или --budget-item-id")
+        raise ValueError("Укажите article или budget_item_id")
 
-    data = api.get_json("/api/v1/budget/items")
-    needle = article.casefold()
-    matches = [
+    catalog = api.get_json("/api/v1/budget/items").get("budget_items", [])
+    active_catalog = _active_budget_items(catalog)
+    needle = normalize_match_text(article)
+
+    exact_matches = [
         item
-        for item in data.get("budget_items", [])
-        if needle in str(item.get("name", "")).casefold()
+        for item in active_catalog
+        if normalize_match_text(str(item.get("name", ""))) == needle
     ]
-    if not matches:
-        raise RuntimeError(f"Статья бюджета не найдена по --article {article!r}")
-    if len(matches) > 1:
-        names = ", ".join(str(m.get("name")) for m in matches)
-        raise RuntimeError(f"Неоднозначно --article {article!r}: {names}")
-    item = matches[0]
-    return str(item["id"]), str(item["name"])
+    if len(exact_matches) == 1:
+        item = exact_matches[0]
+        return str(item["id"]), str(item["name"])
+    if len(exact_matches) > 1:
+        raise RuntimeError(
+            format_ambiguous_article_error(article, sort_ambiguous_rows(exact_matches)),
+        )
+
+    substring_matches = [
+        item
+        for item in active_catalog
+        if needle in normalize_match_text(str(item.get("name", "")))
+    ]
+    if len(substring_matches) == 1:
+        item = substring_matches[0]
+        return str(item["id"]), str(item["name"])
+    if len(substring_matches) > 1:
+        raise RuntimeError(
+            format_ambiguous_article_error(article, sort_ambiguous_rows(substring_matches)),
+        )
+
+    candidates = rank_article_candidates(article, active_catalog)
+    raise RuntimeError(format_not_found_article_error(article, candidates))
 
 
 def fetch_month_row(

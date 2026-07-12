@@ -717,6 +717,287 @@ def fetch_reconciliation_full(
     )
 
 
+_BUDGET_ITEM_VALIDATION_MESSAGE = "Укажите существующую статью бюджета."
+
+
+@dataclass(frozen=True)
+class _OverrideDiagnosisFinding:
+    """One diagnosable budget-item problem for override enrichment (FIN-120)."""
+
+    priority_rank: int
+    candidate_index: int
+    kind: str
+    budget_item_id: str
+    name: str = ""
+    status: str = ""
+    planning_type: str = ""
+
+
+def _normalize_api_error_fields(body: Any) -> tuple[str, str]:
+    """
+    Extract ``code`` and ``message`` from an API error body.
+
+    :param body: Raw response body from ``api.request``
+    :return: Code and message strings (may be empty)
+    """
+    if not isinstance(body, dict):
+        return "", str(body)
+    nested = body.get("error")
+    if isinstance(nested, dict):
+        return str(nested.get("code", "")), str(nested.get("message", ""))
+    return str(body.get("code", "")), str(body.get("message", ""))
+
+
+def is_budget_item_validation_failure(body: Any) -> bool:
+    """
+    Return whether a PUT reconciliation 422 is budget item validation (FIN-120 D-05).
+
+    :param body: PUT response body
+    :return: True when enrichment may apply
+    """
+    code, message = _normalize_api_error_fields(body)
+    if code == "budget_item_not_in_version":
+        return True
+    return code == "validation_error" and message == _BUDGET_ITEM_VALIDATION_MESSAGE
+
+
+def _unique_preserve_order(values: Any) -> list[str]:
+    """
+    Deduplicate string values preserving first-seen order.
+
+    :param values: Iterable of values to stringify
+    :return: Unique id list
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value)
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
+
+
+def _override_budget_item_candidate_ids(
+    overrides_arg: dict[str, str],
+    current_map: dict[str, str],
+) -> tuple[list[str], list[str]]:
+    """
+    Split override map values into arg-first and merged-extra candidate ids (FIN-120 D-03).
+
+    :param overrides_arg: Map from the tool argument
+    :param current_map: Full map sent to PUT
+    :return: Arg ids and remaining merged ids
+    """
+    arg_ids = _unique_preserve_order(overrides_arg.values())
+    arg_set = set(arg_ids)
+    merged_extra = [
+        item_id
+        for item_id in _unique_preserve_order(current_map.values())
+        if item_id not in arg_set
+    ]
+    return arg_ids, merged_extra
+
+
+def _fetch_plan_item_budget_ids(
+    api: ApiClient,
+    budget_version_id: str,
+) -> set[str] | None:
+    """
+    Load budget item ids linked to a version via plan-items (FIN-120 D-08).
+
+    :param api: API client
+    :param budget_version_id: ACT version UUID
+    :return: Set of ids, or ``None`` on diagnostic API failure
+    """
+    status, body = api.request(
+        "GET",
+        f"/api/v1/budget/plan-items?budget_version_id={budget_version_id}",
+    )
+    if status != 200 or not isinstance(body, dict):
+        return None
+    rows = body.get("budget_plan_items", [])
+    if not isinstance(rows, list):
+        return None
+    ids: set[str] = set()
+    for row in rows:
+        if isinstance(row, dict) and row.get("budget_item_id") is not None:
+            ids.add(str(row["budget_item_id"]))
+    return ids
+
+
+def _lookup_budget_item_for_diagnosis(
+    api: ApiClient,
+    item_id: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """
+    GET one budget item for override diagnosis.
+
+    :param api: API client
+    :param item_id: Budget item UUID
+    :return: ``(\"ok\", item)``, ``(\"unknown\", None)``, or ``(\"failed\", None)``
+    """
+    status, body = api.request("GET", f"/api/v1/budget/items/{item_id}")
+    if status == 200 and isinstance(body, dict):
+        return "ok", body
+    if status == 404:
+        return "unknown", None
+    return "failed", None
+
+
+def _diagnose_override_candidates(
+    api: ApiClient,
+    version_item_ids: set[str],
+    candidate_ids: list[str],
+) -> list[_OverrideDiagnosisFinding] | None:
+    """
+    Classify candidate budget items for override 422 enrichment.
+
+    :param api: API client
+    :param version_item_ids: Budget item ids with plan-items in the version
+    :param candidate_ids: Ordered candidate budget item ids
+    :return: Findings, empty list, or ``None`` on diagnostic API failure
+    """
+    findings: list[_OverrideDiagnosisFinding] = []
+    for index, item_id in enumerate(candidate_ids):
+        lookup_kind, item = _lookup_budget_item_for_diagnosis(api, item_id)
+        if lookup_kind == "failed":
+            return None
+        if lookup_kind == "unknown":
+            findings.append(
+                _OverrideDiagnosisFinding(
+                    1,
+                    index,
+                    "unknown_budget_item",
+                    item_id,
+                ),
+            )
+        elif item is not None:
+            item_status = str(item.get("status", "")).strip()
+            name = str(item.get("name", item_id))
+            if item_status != "ACT":
+                findings.append(
+                    _OverrideDiagnosisFinding(
+                        2,
+                        index,
+                        "inactive_budget_item",
+                        item_id,
+                        name=name,
+                        status=item_status,
+                    ),
+                )
+            elif item_id not in version_item_ids:
+                findings.append(
+                    _OverrideDiagnosisFinding(
+                        3,
+                        index,
+                        "missing_plan_item_in_version",
+                        item_id,
+                        name=name,
+                        planning_type=_budget_item_planning_type(item),
+                    ),
+                )
+        if findings:
+            best_rank = min(finding.priority_rank for finding in findings)
+            if best_rank == 1:
+                break
+    return findings
+
+
+def _format_override_diagnosis_error(
+    finding: _OverrideDiagnosisFinding,
+    *,
+    budget_version_id: str,
+    period: Period,
+) -> str:
+    """
+    Build Russian tool error text for one override diagnosis finding.
+
+    :param finding: Selected finding
+    :param budget_version_id: ACT version UUID
+    :param period: Override month
+    :return: Enriched error message
+    """
+    if finding.kind == "unknown_budget_item":
+        return f"budget_item не найден: budget_item_id={finding.budget_item_id}"
+    if finding.kind == "inactive_budget_item":
+        return (
+            f"budget_item «{finding.name}» не ACTIVE "
+            f"(budget_item_id={finding.budget_item_id}, status={finding.status})"
+        )
+    lines = [
+        (
+            f"Статья «{finding.name}» "
+            f"(budget_item_id={finding.budget_item_id}, "
+            f"planning_type={finding.planning_type}) "
+            f"не имеет plan-item в ACT-версии {budget_version_id}."
+        ),
+        "",
+        "Создайте plan-item через create_plan_item и повторите override.",
+    ]
+    if finding.planning_type == "IRR":
+        lines.extend(
+            [
+                "",
+                "Пример (IRR):",
+                (
+                    f'  create_plan_item(budget_item_id="{finding.budget_item_id}", '
+                    f'amount=0, planning_type="IRR", forecast_method="MAN")'
+                ),
+            ],
+        )
+    elif finding.planning_type == "REG":
+        lines.extend(
+            [
+                "",
+                "Пример (REG):",
+                (
+                    f'  create_plan_item(budget_item_id="{finding.budget_item_id}", '
+                    f'amount=0, start_period="{period.yyyy_mm}")'
+                ),
+            ],
+        )
+    return "\n".join(lines)
+
+
+def diagnose_put_reconciliation_budget_item_error(
+    api: ApiClient,
+    budget_version_id: str,
+    period: Period,
+    overrides_arg: dict[str, str],
+    current_map: dict[str, str],
+) -> str | None:
+    """
+    Diagnose budget-item override 422 and return an enriched ops message (FIN-120).
+
+    :param api: API client
+    :param budget_version_id: ACT version UUID
+    :param period: Target month
+    :param overrides_arg: Map from tool argument
+    :param current_map: Full map sent to PUT
+    :return: Enriched message, or ``None`` to fall back to raw PUT error
+    """
+    version_item_ids = _fetch_plan_item_budget_ids(api, budget_version_id)
+    if version_item_ids is None:
+        return None
+
+    arg_ids, merged_extra = _override_budget_item_candidate_ids(overrides_arg, current_map)
+    for candidate_ids in (arg_ids, merged_extra):
+        if not candidate_ids:
+            continue
+        findings = _diagnose_override_candidates(api, version_item_ids, candidate_ids)
+        if findings is None:
+            return None
+        if findings:
+            best = min(findings, key=lambda row: (row.priority_rank, row.candidate_index))
+            return _format_override_diagnosis_error(
+                best,
+                budget_version_id=budget_version_id,
+                period=period,
+            )
+    return None
+
+
 def put_transaction_overrides(
     api: ApiClient,
     budget_version_id: str,
@@ -751,6 +1032,16 @@ def put_transaction_overrides(
         },
     )
     if status != 200:
+        if status == 422 and is_budget_item_validation_failure(body):
+            enriched = diagnose_put_reconciliation_budget_item_error(
+                api,
+                budget_version_id,
+                period,
+                overrides,
+                current,
+            )
+            if enriched is not None:
+                raise RuntimeError(enriched)
         raise RuntimeError(f"PUT reconciliation -> {status}: {body}")
     if not isinstance(body, dict):
         raise RuntimeError(f"PUT reconciliation unexpected body: {body!r}")

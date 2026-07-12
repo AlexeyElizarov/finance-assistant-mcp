@@ -1207,7 +1207,11 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="query_plan_fact",
-            description="План/факт по статье бюджета (GET /budget/plan-actual).",
+            description=(
+                "План/факт по статье бюджета (GET /budget/plan-actual). "
+                "При not-found/ambiguous article — enriched error с кандидатами "
+                "(budget_item_id, категория) и подсказками уточнения (FIN-122)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1541,6 +1545,7 @@ async def list_tools() -> list[types.Tool]:
             name="put_transaction_overrides",
             description=(
                 "PUT reconciliation overrides: transaction_key → budget_item_id для месяца. "
+                "При 422 (budget_item без plan-item в ACT) — подсказка create_plan_item. "
                 "Опционально derive после записи (default true)."
             ),
             inputSchema={
