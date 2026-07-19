@@ -144,6 +144,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
             close_phase=args.close_phase,
             keywords_effective=keywords_effective,
             c9999_acknowledged=args.c9999_acknowledged,
+            readiness=readiness,
         )
         if guard_error:
             print(f"STOP: {guard_error}", file=sys.stderr)

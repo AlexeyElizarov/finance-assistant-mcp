@@ -32,6 +32,8 @@ class Row:
     description: str
     category: str
     provider: str
+    id: str = ""
+    transaction_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -216,6 +218,8 @@ def row_from_api(raw: dict) -> Row:
         description=raw["description"],
         category=raw["transaction_category"],
         provider=raw["provider"],
+        id=str(raw.get("id") or ""),
+        transaction_type=str(raw.get("transaction_type") or ""),
     )
 
 
@@ -488,10 +492,12 @@ def main() -> int:
                 "row_count": len(rows),
                 "rows": [
                     {
+                        "id": r.id,
                         "date": r.date_display,
                         "amount": r.amount,
                         "indicator": r.indicator,
                         "category": r.category,
+                        "transaction_type": r.transaction_type,
                         "provider": r.provider,
                         "description": r.description,
                     }

@@ -76,6 +76,7 @@ from monthly_close_lib import (  # noqa: E402
     run_derive,
     run_imports,
     create_budget_item,
+    create_category,
     create_plan_item,
     update_plan_item,
     upsert_expense_project,
@@ -92,6 +93,10 @@ _household_advances = _load_script_module("household_advances", "household_advan
 _household_receivables = _load_script_module("household_receivables", "household_receivables.py")
 _personal_fund_carryover = _load_script_module("personal_fund_carryover", "personal_fund_carryover.py")
 _money_check_report = _load_script_module("money_check_report", "money_check_report.py")
+_put_transaction_category = _load_script_module(
+    "put_transaction_category",
+    "put_transaction_category.py",
+)
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
 fetch_month_row = _query_plan_fact.fetch_month_row
@@ -110,6 +115,7 @@ run_household_advances = _household_advances.run_household_advances
 run_household_receivables = _household_receivables.run_household_receivables
 compute_personal_fund_carryover = _personal_fund_carryover.compute_personal_fund_carryover
 compute_money_check_report = _money_check_report.compute_money_check_report
+put_transaction_category = _put_transaction_category.put_transaction_category
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
@@ -461,6 +467,7 @@ def _handle_process_month(arguments: dict[str, Any]) -> list[types.TextContent]:
             close_phase=close_phase,
             keywords_effective=keywords_effective,
             c9999_acknowledged=c9999_acknowledged,
+            readiness=verify.get("readiness") or {},
         )
         if guard_error:
             return _json_text(
@@ -684,6 +691,23 @@ def _handle_put_transaction_overrides(arguments: dict[str, Any]) -> list[types.T
     return _json_text(payload)
 
 
+def _handle_put_transaction_category(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    kwargs: dict[str, Any] = {
+        "transaction_id": arguments.get("transaction_id"),
+        "transaction_type": arguments.get("transaction_type"),
+        "transaction_category": arguments.get("transaction_category"),
+        "allow_closed": bool(arguments.get("allow_closed", False)),
+    }
+    if "reconciliation_note" in arguments:
+        kwargs["reconciliation_note"] = arguments.get("reconciliation_note")
+    if "category_source" in arguments:
+        kwargs["category_source"] = arguments.get("category_source")
+    payload = put_transaction_category(api, profile=profile, base=base, **kwargs)
+    return _json_text(payload)
+
+
 def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
@@ -692,6 +716,26 @@ def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.Text
         raise ValueError("project must be an object")
     result = upsert_expense_project(api, project)
     return _json_text({"ok": True, "profile": profile, "base": base, **result})
+
+
+def _handle_create_category(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    required = ("id", "type", "description")
+    missing = [field for field in required if field not in arguments]
+    if missing:
+        raise ValueError(f"missing required fields: {', '.join(missing)}")
+    kwargs: dict[str, Any] = {
+        "id": str(arguments["id"]),
+        "type": str(arguments["type"]),
+        "description": str(arguments["description"]),
+    }
+    if "keywords" in arguments:
+        kwargs["keywords"] = arguments["keywords"]
+    if "default" in arguments:
+        kwargs["default"] = arguments["default"]
+    category = create_category(api, **kwargs)
+    return _json_text({"ok": True, "profile": profile, "base": base, "category": category})
 
 
 def _handle_create_budget_item(arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -890,10 +934,12 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
             "row_count": len(rows),
             "rows": [
                 {
+                    "id": r.id,
                     "date": r.date_display,
                     "amount": r.amount,
                     "indicator": r.indicator,
                     "category": r.category,
+                    "transaction_type": r.transaction_type,
                     "provider": r.provider,
                     "description": r.description,
                 }
@@ -1500,7 +1546,8 @@ async def list_tools() -> list[types.Tool]:
             name="query_transactions",
             description=(
                 "Выборка транзакций (GET /api/v1/transactions) с фильтрами учётного периода, "
-                "категории и group-by month."
+                "категории и group-by month. Неагрегированные rows включают id и transaction_type "
+                "(для put_transaction_category)."
             ),
             inputSchema={
                 "type": "object",
@@ -1571,6 +1618,47 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="put_transaction_category",
+            description=(
+                "Коррекция transaction_type вместе с совместимой непустой "
+                "transaction_category (PATCH …/category, FIN-202). "
+                "category_source не передавать (implicit manual). "
+                "Опционально reconciliation_note и allow_closed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "transaction_id": {
+                        "type": "string",
+                        "description": "UUID строки (query_transactions → id)",
+                    },
+                    "transaction_type": {
+                        "type": "string",
+                        "description": "C / P / S / I (strip; регистр нормализует API)",
+                    },
+                    "transaction_category": {
+                        "type": "string",
+                        "description": "Непустой id категории, совместимый с типом",
+                    },
+                    "reconciliation_note": {
+                        "type": ["string", "null"],
+                        "description": "Опционально; атомарно с type+category",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": [
+                    "transaction_id",
+                    "transaction_type",
+                    "transaction_category",
+                ],
+            },
+        ),
+        types.Tool(
             name="upsert_expense_project",
             description="Создать или полностью заменить проект расходов (POST/PUT /api/v1/projects; full replace, no partial update).",
             inputSchema={
@@ -1584,6 +1672,45 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["project"],
+            },
+        ),
+        types.Tool(
+            name="create_category",
+            description=(
+                "Создать категорию транзакций в справочнике профиля "
+                "(POST /api/v1/categories). Domain-валидация id/type/default — на API."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "id": {
+                        "type": "string",
+                        "description": "Id категории (напр. P0004)",
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "Тип: C, P, S или I",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Человекочитаемое имя",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Начальные keywords (default [])",
+                    },
+                    "default": {
+                        "type": "boolean",
+                        "description": (
+                            "Флаг default-категории (default false; "
+                            "true отклоняется API 422)"
+                        ),
+                    },
+                },
+                "required": ["id", "type", "description"],
             },
         ),
         types.Tool(
@@ -1761,7 +1888,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "money_check_report": _handle_money_check_report,
         "household_receivables": _handle_household_receivables,
         "put_transaction_overrides": _handle_put_transaction_overrides,
+        "put_transaction_category": _handle_put_transaction_category,
         "upsert_expense_project": _handle_upsert_expense_project,
+        "create_category": _handle_create_category,
         "create_budget_item": _handle_create_budget_item,
         "create_plan_item": _handle_create_plan_item,
         "update_plan_item": _handle_update_plan_item,

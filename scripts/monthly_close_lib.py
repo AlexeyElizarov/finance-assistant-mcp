@@ -284,26 +284,68 @@ def keywords_file_effective(path: Path) -> bool:
     return keywords_payload_effective(raw)
 
 
+def _readiness_check_by_id(
+    readiness: dict[str, Any],
+    check_id: str,
+) -> dict[str, Any] | None:
+    """
+    Return a readiness check item by id.
+
+    :param readiness: Readiness payload from API
+    :param check_id: Check identifier
+    :return: Matching check or ``None``
+    """
+    for check in readiness.get("checks") or []:
+        if isinstance(check, dict) and check.get("id") == check_id:
+            return check
+    return None
+
+
 def c9999_close_guard_error(
     *,
     expense_c9999_count: int,
     close_phase: str,
     keywords_effective: bool,
     c9999_acknowledged: bool,
+    readiness: dict[str, Any] | None = None,
 ) -> str | None:
     """
-    Return close-blocking error for C9999 guard, or ``None`` when close may proceed.
+    Return close-blocking classification error, or ``None`` when close may proceed.
+
+    Final (FIN-69): requires readiness checks ``unclassified_pending`` and
+    ``other_without_note``; ``expense_c9999_count`` alone does not block.
+    Preliminary (FIN-2): C9999 requires ack or effective keywords; new checks optional.
 
     :param expense_c9999_count: Count from latest verify classification summary
     :param close_phase: ``preliminary`` or ``final``
     :param keywords_effective: Whether apply_keywords payload was effective
     :param c9999_acknowledged: Operator acknowledged retained C9999 (preliminary only)
+    :param readiness: Backend readiness payload (required fields for final)
     :return: English error message when blocked, else ``None``
     """
+    if close_phase == "final":
+        payload = readiness if isinstance(readiness, dict) else {}
+        pending_check = _readiness_check_by_id(payload, "unclassified_pending")
+        note_check = _readiness_check_by_id(payload, "other_without_note")
+        if pending_check is None or note_check is None:
+            return (
+                "API readiness missing required classification checks "
+                "(unclassified_pending, other_without_note) for final close"
+            )
+        pending_count = int(
+            (pending_check.get("details") or {}).get("unclassified_pending_count") or 0
+        )
+        note_count = int((note_check.get("details") or {}).get("count") or 0)
+        if pending_count > 0:
+            return "unclassified pending > 0 — resolve pending before final close"
+        if note_count > 0:
+            return (
+                "intentional Other without reconciliation_note — "
+                "add notes before final close"
+            )
+        return None
     if expense_c9999_count <= 0:
         return None
-    if close_phase == "final":
-        return "C9999 > 0 — resolve C9999 before final close"
     if close_phase == "preliminary":
         if keywords_effective or c9999_acknowledged:
             return None
@@ -1306,6 +1348,22 @@ def verify_period(
     c9999_count = int(summary.get("expense_c9999_count") or 0)
     if c9999_count > 0:
         warnings.append(f"C9999: {c9999_count} расходов")
+    pending_check = checks.get("unclassified_pending") or {}
+    pending_count = int(
+        (pending_check.get("details") or {}).get("unclassified_pending_count")
+        or summary.get("unclassified_pending_count")
+        or 0
+    )
+    if pending_check.get("status") == "warn" or pending_count > 0:
+        warnings.append(f"pending: {pending_count} неклассифицировано")
+    note_check = checks.get("other_without_note") or {}
+    note_count = int(
+        (note_check.get("details") or {}).get("count")
+        or summary.get("other_without_note_count")
+        or 0
+    )
+    if note_check.get("status") == "warn" or note_count > 0:
+        warnings.append(f"Other без note: {note_count}")
     if balances.get("status") == "incomplete":
         issues.append("balances: incomplete — повтори import SEPA/MC пока period open")
     elif balances.get("status") != "pass":
@@ -2807,3 +2865,69 @@ def create_plan_item(
         "projection_rows": projection_rows_count(recalc_body),
     }
     return base_result
+
+
+_UNSET: Any = object()
+
+
+def create_category(
+    api: ApiClient,
+    *,
+    id: str,
+    type: str,
+    description: str,
+    keywords: Any = _UNSET,
+    default: Any = _UNSET,
+) -> dict[str, Any]:
+    """
+    Create a transaction category via ``POST /api/v1/categories`` (FIN-217).
+
+    Pre-HTTP validation is limited to presence/strip and ``list`` / ``bool`` types.
+    Domain rules (id pattern, type↔id, ``default:true``, keyword elements) stay on
+    the backend (FIN-214).
+
+    :param api: API client
+    :param id: Category id (e.g. ``P0004``)
+    :param type: Category type letter ``C`` / ``P`` / ``S`` / ``I``
+    :param description: Human-readable name
+    :param keywords: Initial keywords; omit for ``[]``
+    :param default: Default-category flag; omit for ``false``
+    :return: Created category body (201)
+    :raises ValueError: Pre-HTTP validation failure
+    :raises RuntimeError: HTTP status is not 201 or body is not a dict
+    """
+    cat_id = id.strip()
+    cat_type = type.strip()
+    cat_description = description.strip()
+    if not cat_id:
+        raise ValueError("id is required")
+    if not cat_type:
+        raise ValueError("type is required")
+    if not cat_description:
+        raise ValueError("description is required")
+
+    if keywords is _UNSET:
+        keywords_body: list[Any] = []
+    elif not isinstance(keywords, list):
+        raise ValueError("keywords must be a list")
+    else:
+        keywords_body = keywords
+
+    if default is _UNSET:
+        default_body = False
+    elif not isinstance(default, bool):
+        raise ValueError("default must be a bool")
+    else:
+        default_body = default
+
+    body = {
+        "id": cat_id,
+        "type": cat_type,
+        "description": cat_description,
+        "keywords": keywords_body,
+        "default": default_body,
+    }
+    status, created = api.request("POST", "/api/v1/categories", data=body)
+    if status != 201 or not isinstance(created, dict):
+        raise RuntimeError(f"POST /api/v1/categories -> {status}: {created}")
+    return created

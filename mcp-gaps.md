@@ -17,7 +17,7 @@
 | `period_status_report` | Отчёт за год/диапазон (reconciliation, methodology_status, ready, C9999, блокеры) |
 | `verify_month` | Verify одного месяца |
 | `list_c9999` | Expense C9999 строки за месяц для proposal table (**FIN-17** ✓) |
-| `process_month` | Reopen → import → derive → verify → optional close/PDF; preset `monthly_close_prepare` (**FIN-31** ✓); C9999 warn vs close guard (**FIN-2** ✓) |
+| `process_month` | Reopen → import → derive → verify → optional close/PDF; preset `monthly_close_prepare` (**FIN-31** ✓); C9999 warn vs close guard (**FIN-2** ✓); final pending/note gates (**FIN-69** ✓) |
 | `reopen_periods` | Reopen closed периодов |
 | `query_plan_fact` | План/факт по статье; enriched errors при not-found/ambiguous article (**FIN-122** ✓) |
 | `household_base_share` | Базовая доля личных фондов; `income_mode` / overrides (FIN-103, FIN-121); `convert_plans_to_eur` (FIN-114) |
@@ -27,14 +27,16 @@
 | `personal_fund_carryover` | Перенос остатков/перерасхода личного фонда после FINAL close (**FIN-105** ✓) |
 | `household_receivables` | Журнал займов третьим лицам: register / record_repayment / list / extend / write_off / mark_gift (**FIN-116** ✓) |
 | `money_check_report` | Еженедельный household money check: лимиты, остатки, methodology, C9999/?, advances, receivables (**FIN-104** ✓) |
-| `query_transactions` | Выборка транзакций: `period` / `accounting_period`, `category`, group-by month |
+| `query_transactions` | Выборка транзакций: `period` / `accounting_period`, `category`, group-by month; rows: `id`, `transaction_type` (**FIN-27** ✓, **FIN-211** ✓) |
 | `delete_transactions_by_filter` | Maintenance delete по фильтру (**BLG-084** ✓) |
 | `apply_keywords` | Unified/legacy JSON: категории, статьи бюджета, проекты + optional derive (**FIN-16** ✓) |
 | `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓, **FIN-120** ✓) |
+| `put_transaction_category` | Коррекция `transaction_type` + совместимой категории (`PATCH …/category`, FIN-202) (**FIN-211** ✓) |
 | `upsert_expense_project` | Создать или полностью заменить проект расходов (**FIN-107** ✓) |
 | `update_plan_item` | Изменить plan-item: сумма и/или bounded horizon + recalculate (**FIN-108** ✓, **FIN-110** ✓) |
 | `create_budget_item` | Создать статью + REG plan-item в ACT-версии + recalculate (**FIN-109** ✓) |
 | `create_plan_item` | POST REG/IRR plan-item на существующую статью + recalculate (**FIN-110** ✓, **FIN-119** ✓) |
+| `create_category` | Создать категорию транзакций — POST /api/v1/categories (**FIN-217** ✓) |
 
 ---
 

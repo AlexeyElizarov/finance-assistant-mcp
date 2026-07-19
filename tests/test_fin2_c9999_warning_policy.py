@@ -20,24 +20,58 @@ from monthly_close_lib import (
 )
 
 
-def _readiness_payload(*, ready: bool = True) -> dict[str, Any]:
-    return {
-        "ready": ready,
-        "checks": [
-            {"id": "account_balances_reconciliation", "status": "pass", "blocking": True},
-            {"id": "t13_income_expense", "status": "pass", "blocking": True},
-        ],
-    }
+def _readiness_payload(
+    *,
+    ready: bool = True,
+    pending: int = 0,
+    other_without_note: int = 0,
+    include_classification_checks: bool = True,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = [
+        {"id": "account_balances_reconciliation", "status": "pass", "blocking": True},
+        {"id": "t13_income_expense", "status": "pass", "blocking": True},
+    ]
+    if include_classification_checks:
+        checks.extend(
+            [
+                {
+                    "id": "unclassified_pending",
+                    "status": "pass" if pending == 0 else "warn",
+                    "blocking": False,
+                    "details": {"unclassified_pending_count": pending},
+                },
+                {
+                    "id": "other_without_note",
+                    "status": "pass" if other_without_note == 0 else "warn",
+                    "blocking": False,
+                    "details": {"count": other_without_note},
+                },
+            ]
+        )
+    return {"ready": ready, "checks": checks}
 
 
-def _verify_ready(c9999: int = 0, *, ready: bool = True, mc_from_17th: int = 1) -> dict[str, Any]:
+def _verify_ready(
+    c9999: int = 0,
+    *,
+    ready: bool = True,
+    mc_from_17th: int = 1,
+    pending: int = 0,
+    other_without_note: int = 0,
+    include_classification_checks: bool = True,
+) -> dict[str, Any]:
     return {
         "ok": True,
         "issues": [],
         "warnings": [f"C9999: {c9999} расходов"] if c9999 else [],
         "mc": {"mc_total": 10, "mc_from_17th": mc_from_17th, "from_17th_samples": []},
         "classification_summary": {"expense_c9999_count": c9999, "row_count": 10},
-        "readiness": _readiness_payload(ready=ready),
+        "readiness": _readiness_payload(
+            ready=ready,
+            pending=pending,
+            other_without_note=other_without_note,
+            include_classification_checks=include_classification_checks,
+        ),
     }
 
 
@@ -102,17 +136,17 @@ class KeywordsEffectiveTest(unittest.TestCase):
 
 
 class C9999GuardTest(unittest.TestCase):
-    """Guard helper matrix."""
+    """Guard helper matrix (FIN-2 preliminary; FIN-69 final)."""
 
-    def test_final_blocks_when_n_positive(self) -> None:
+    def test_final_allows_c9999_when_pending_and_note_clear(self) -> None:
         err = c9999_close_guard_error(
             expense_c9999_count=2,
             close_phase="final",
             keywords_effective=True,
             c9999_acknowledged=False,
+            readiness=_readiness_payload(pending=0, other_without_note=0),
         )
-        self.assertIsNotNone(err)
-        self.assertIn("final close", err)
+        self.assertIsNone(err)
 
     def test_preliminary_allows_ack(self) -> None:
         self.assertIsNone(
@@ -250,7 +284,8 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
         self.assertIn("preliminary close", payload["error"])
         close_period.assert_not_called()
 
-    def test_t6_final_blocked_when_n_positive(self) -> None:
+    def test_t6_final_allows_c9999_when_classification_gates_clear(self) -> None:
+        """FIN-69: expense_c9999_count alone no longer blocks final close."""
         import server
 
         with patch("server.WORKING") as working, patch(
@@ -262,7 +297,7 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
         ), patch(
             "server.get_session",
             return_value=(MagicMock(), "http://127.0.0.1:8000"),
-        ), patch("server.close_period") as close_period:
+        ), patch("server.close_period", return_value=(200, {})) as close_period:
             working.__truediv__.return_value = MagicMock()
             payload = _process_month_payload(
                 {
@@ -272,9 +307,8 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
                     "close_phase": "final",
                 }
             )
-        self.assertFalse(payload["ok"])
-        self.assertIn("final close", payload["error"])
-        close_period.assert_not_called()
+        self.assertTrue(payload["ok"])
+        close_period.assert_called_once()
 
     def test_t7a_final_close_after_n_zero(self) -> None:
         import server
@@ -311,7 +345,8 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
         self.assertTrue(payload["ok"])
         close_period.assert_called_once()
 
-    def test_t7b_final_blocked_after_keywords_still_c9999(self) -> None:
+    def test_t7b_final_allows_remaining_c9999_after_keywords(self) -> None:
+        """FIN-69: remaining C9999 after keywords does not block final."""
         import server
 
         with patch("server.WORKING") as working, patch(
@@ -325,7 +360,7 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
             return_value=(MagicMock(), "http://127.0.0.1:8000"),
         ), patch("server.keywords_file_effective", return_value=True), patch(
             "server.apply_keywords_file", return_value=empty_keywords_changes(),
-        ), patch("server.close_period") as close_period:
+        ), patch("server.close_period", return_value=(200, {})) as close_period:
             working.__truediv__.return_value = MagicMock()
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
                 fh.write('{"C0005": ["x"]}')
@@ -342,8 +377,8 @@ class ProcessMonthHandlerFin2Test(unittest.TestCase):
                 )
             finally:
                 Path(kw_path).unlink(missing_ok=True)
-        self.assertFalse(payload["ok"])
-        close_period.assert_not_called()
+        self.assertTrue(payload["ok"])
+        close_period.assert_called_once()
 
     def test_t10_empty_keywords_file_not_effective(self) -> None:
         import server

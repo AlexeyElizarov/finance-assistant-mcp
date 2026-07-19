@@ -133,11 +133,13 @@ class FetchRowsTests(unittest.TestCase):
         api.get_json.return_value = {
             "rows": [
                 {
+                    "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
                     "date_display": "01.02.2026",
                     "amount": "10,00",
                     "debit_credit_indicator": "D",
                     "description": "OTTO",
                     "transaction_category": "C9999",
+                    "transaction_type": "C",
                     "provider": "sparkasse_sepa",
                 }
             ],
@@ -147,6 +149,8 @@ class FetchRowsTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].category, "C9999")
         self.assertEqual(rows[0].amount, 10.0)
+        self.assertEqual(rows[0].id, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1")
+        self.assertEqual(rows[0].transaction_type, "C")
 
     def test_t09_filter_error_raises(self) -> None:
         api = MagicMock()
@@ -187,6 +191,8 @@ class HandlerTests(unittest.TestCase):
         mock_row.category = "C9999"
         mock_row.provider = "sparkasse_sepa"
         mock_row.description = "TEST"
+        mock_row.id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
+        mock_row.transaction_type = "C"
 
         with patch.object(server, "get_session", return_value=(MagicMock(), "http://127.0.0.1:8000")):
             with patch.object(server, "fetch_rows", return_value=[mock_row]):
@@ -196,6 +202,9 @@ class HandlerTests(unittest.TestCase):
         payload = json.loads(result[0].text)
         self.assertEqual(payload["row_count"], 1)
         self.assertEqual(payload["rows"][0]["category"], "C9999")
+        self.assertEqual(payload["rows"][0]["id"], "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1")
+        self.assertEqual(payload["rows"][0]["transaction_type"], "C")
+        self.assertNotIn("transaction_key", payload["rows"][0])
 
 
 if __name__ == "__main__":
