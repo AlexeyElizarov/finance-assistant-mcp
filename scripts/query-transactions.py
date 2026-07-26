@@ -34,6 +34,7 @@ class Row:
     provider: str
     id: str = ""
     transaction_type: str = ""
+    expense_owner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,12 @@ def row_from_api(raw: dict) -> Row:
     :param raw: One element of ``GET /transactions`` ``rows``
     :return: Parsed row
     """
+    raw_owner = raw.get("expense_owner")
+    expense_owner: str | None
+    if raw_owner is None:
+        expense_owner = None
+    else:
+        expense_owner = str(raw_owner)
     return Row(
         date_display=raw["date_display"],
         amount=parse_amount(raw["amount"]),
@@ -220,6 +227,7 @@ def row_from_api(raw: dict) -> Row:
         provider=raw["provider"],
         id=str(raw.get("id") or ""),
         transaction_type=str(raw.get("transaction_type") or ""),
+        expense_owner=expense_owner,
     )
 
 
@@ -498,6 +506,7 @@ def main() -> int:
                         "indicator": r.indicator,
                         "category": r.category,
                         "transaction_type": r.transaction_type,
+                        "expense_owner": r.expense_owner,
                         "provider": r.provider,
                         "description": r.description,
                     }

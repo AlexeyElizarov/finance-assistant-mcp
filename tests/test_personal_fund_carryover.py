@@ -51,11 +51,24 @@ class FakeApi:
         transactions: list[dict[str, Any]] | None = None,
         carryover_status: int = 404,
         carryover_body: dict[str, Any] | None = None,
+        runs_get_status: int = 404,
+        runs_get_body: dict[str, Any] | None = None,
+        runs_put_status: int = 404,
+        runs_put_body: dict[str, Any] | None = None,
     ) -> None:
         self.methodology_status = methodology_status
         self.transactions = transactions or []
         self.carryover_status = carryover_status
         self.carryover_body = carryover_body or {}
+        self.runs_get_status = runs_get_status
+        self.runs_get_body = runs_get_body if runs_get_body is not None else {
+            "error": {"code": "not_found", "message": "missing"},
+        }
+        self.runs_put_status = runs_put_status
+        self.runs_put_body = runs_put_body or {}
+        self.put_calls: list[dict[str, Any]] = []
+        self.get_run_calls: list[str] = []
+        self.carryover_get_paths: list[str] = []
 
     def get_json(self, path: str) -> dict[str, Any]:
         if path.startswith("/api/v1/budget/reconciliation?"):
@@ -70,9 +83,25 @@ class FakeApi:
             return {"budget_items": BUDGET_ITEMS}
         raise AssertionError(f"unexpected get_json path: {path}")
 
-    def request(self, method: str, path: str) -> tuple[int, Any]:
+    def request(
+        self,
+        method: str,
+        path: str,
+        data: dict[str, Any] | None = None,
+    ) -> tuple[int, Any]:
         if method == "GET" and path.startswith("/api/v1/household/personal-fund-carryover?"):
+            self.carryover_get_paths.append(path)
             return self.carryover_status, self.carryover_body
+        if method == "GET" and path.startswith("/api/v1/household/personal-fund-carryover/runs/"):
+            self.get_run_calls.append(path)
+            return self.runs_get_status, self.runs_get_body
+        if method == "PUT" and path == "/api/v1/household/personal-fund-carryover/runs":
+            self.put_calls.append(data or {})
+            if self.runs_put_status == 200 and not self.runs_put_body:
+                body = dict(data or {})
+                body["updated_at"] = "2026-08-18T10:00:00Z"
+                return 200, body
+            return self.runs_put_status, self.runs_put_body
         raise AssertionError(f"unexpected request: {method} {path}")
 
 
@@ -125,11 +154,13 @@ class PersonalFundCarryoverTests(unittest.TestCase):
         methodology_status: str = "final_closed",
         base_share: float = 1000.0,
         plan_txns: list[dict[str, Any]] | None = None,
+        api: FakeApi | None = None,
     ) -> dict[str, Any]:
-        api = FakeApi(
-            methodology_status=methodology_status,
-            transactions=transactions or [],
-        )
+        if api is None:
+            api = FakeApi(
+                methodology_status=methodology_status,
+                transactions=transactions or [],
+            )
         plan_rows = plan_txns or []
 
         def fetch_side_effect(
@@ -360,6 +391,136 @@ class PersonalFundCarryoverTests(unittest.TestCase):
     def test_prev_calendar_month(self) -> None:
         self.assertEqual(prev_calendar_month("2026-07"), "2026-06")
         self.assertEqual(prev_calendar_month("2026-01"), "2025-12")
+
+    def test_t12_api_put_success_no_json_required(self) -> None:
+        api = FakeApi(runs_put_status=200)
+        with patch("personal_fund_carryover.save_carryover_log") as save_log:
+            result = self._run(api=api)
+        self.assertTrue(result["log_persisted"])
+        self.assertEqual(result["persist_target"], "api")
+        self.assertGreaterEqual(len(api.put_calls), 1)
+        save_log.assert_not_called()
+
+    def test_t12_api_put_unavailable_json_fallback(self) -> None:
+        api = FakeApi(runs_put_status=404)
+        result = self._run(api=api)
+        self.assertTrue(result["log_persisted"])
+        self.assertEqual(result["persist_target"], "json")
+        self.assertTrue(self.log_path.is_file())
+
+    def test_t12b_detail_not_found_uses_json(self) -> None:
+        from personal_fund_carryover import (
+            resolve_incoming_carryover_cutover,
+            save_carryover_log,
+            upsert_carryover_run,
+            empty_carryover_log,
+        )
+
+        log = empty_carryover_log("test")
+        upsert_carryover_run(
+            log,
+            closed_period="2026-06",
+            target_period="2026-07",
+            source="manual_runbook",
+            partners=[
+                {
+                    "id": "aleksey",
+                    "carryover": 42.0,
+                    "advance_deduction": 0.0,
+                    "overrun_amount": 0.0,
+                },
+                {
+                    "id": "nikolay",
+                    "carryover": 0.0,
+                    "advance_deduction": 0.0,
+                    "overrun_amount": 0.0,
+                },
+            ],
+            advances_marked=False,
+            computed_at="2026-07-01T00:00:00Z",
+        )
+        save_carryover_log(self.log_path, log)
+        api = FakeApi(
+            runs_get_status=404,
+            runs_get_body={"error": {"code": "not_found", "message": "missing"}},
+        )
+        incoming = resolve_incoming_carryover_cutover(
+            api,
+            log,
+            "2026-07",
+            frozenset({"aleksey", "nikolay"}),
+        )
+        self.assertEqual(incoming["aleksey"], 42.0)
+
+    def test_t12c_detail_not_found_and_json_absent_zero(self) -> None:
+        from personal_fund_carryover import (
+            empty_carryover_log,
+            resolve_incoming_carryover_cutover,
+        )
+
+        api = FakeApi(
+            runs_get_status=404,
+            runs_get_body={"error": {"code": "not_found", "message": "missing"}},
+        )
+        incoming = resolve_incoming_carryover_cutover(
+            api,
+            empty_carryover_log("test"),
+            "2026-07",
+            frozenset({"aleksey", "nikolay"}),
+        )
+        self.assertEqual(incoming["aleksey"], 0.0)
+        self.assertEqual(incoming["nikolay"], 0.0)
+
+    def test_t11_api_path_omits_synthesized_incoming(self) -> None:
+        """FIN-230: without override, API probe must not pass incoming_carryover."""
+        api = FakeApi(
+            carryover_status=200,
+            carryover_body={
+                "closed_period": "2026-07",
+                "target_period": "2026-08",
+                "budget_version_id": "vid-1",
+                "methodology_status": "final_closed",
+                "formula": "x",
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "display_name": "Алексей",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 42.0,
+                        "starting_fund": 1042.0,
+                        "actual_spend": 0.0,
+                        "balance": 1042.0,
+                        "carryover": 1042.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2042.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "display_name": "Николай",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                ],
+                "warnings": [],
+            },
+            runs_put_status=200,
+        )
+        result = self._run(api=api, dry_run=True)
+        self.assertEqual(len(api.carryover_get_paths), 1)
+        self.assertNotIn("incoming_carryover", api.carryover_get_paths[0])
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(aleksey["incoming_carryover"], 42.0)
+        self.assertEqual(api.get_run_calls, [])
 
 
 if __name__ == "__main__":

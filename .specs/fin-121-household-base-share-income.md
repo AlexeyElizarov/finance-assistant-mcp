@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-121](https://alexeielizarov.atlassian.net/browse/FIN-121); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Relates** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103) (базовый tool), [FIN-114](https://alexeielizarov.atlassian.net/browse/FIN-114) (FX API — отдельная задача).
 
-**Домен:** формула шагов 1–5 — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md); ops июля — [household-base-share.md](../../../assistant/35-finance-assistant/working/2026-07/household-base-share.md).
+**Домен:** формула шагов 1–5 — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md); ops июля — [household-base-share.md](../../../assistant/35-finance-assistant/working/2026-07/household-base-share.md).
 
 **Статус:** Утверждено (2026-07-09, rev.4)
 

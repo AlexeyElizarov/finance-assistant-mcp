@@ -1,10 +1,10 @@
 # MCP tool `personal_fund_carryover` — перенос остатка личного фонда после FINAL
 
-**Связь:** [FIN-105](https://alexeielizarov.atlassian.net/browse/FIN-105); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Blocks** [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104); **Relates** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103), [FIN-115](https://alexeielizarov.atlassian.net/browse/FIN-115) (ledger + `mark_deducted`), [FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102) / BE-11 (backend read API), [FIN-132](https://alexeielizarov.atlassian.net/browse/FIN-132) (late register — warning only), [FIN-136](https://alexeielizarov.atlassian.net/browse/FIN-136) (extended audit — follow-up).
+**Связь:** [FIN-105](https://alexeielizarov.atlassian.net/browse/FIN-105); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Blocks** [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104); **Relates** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103), [FIN-115](https://alexeielizarov.atlassian.net/browse/FIN-115) (ledger + `mark_deducted`), [FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102) / BE-11 (backend read API), [FIN-230](https://alexeielizarov.atlassian.net/browse/FIN-230) (incoming from history in compute), [FIN-132](https://alexeielizarov.atlassian.net/browse/FIN-132) (late register — warning only), [FIN-136](https://alexeielizarov.atlassian.net/browse/FIN-136) (extended audit — follow-up).
 
-**Домен:** формула остатка / перерасхода и удержания авансов — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md) (§ «Остаток и перерасход личного фонда», «Аванс на базовые потребности»); ops фаза 4 — [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md).
+**Домен:** формула остатка / перерасхода и удержания авансов — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (§ «Остаток и перерасход личного фонда», «Аванс на базовые потребности»); ops — [ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md).
 
-**Статус:** Утверждено (2026-07-11, rev.3)
+**Статус:** Утверждено (2026-07-26, rev.4) — amend FIN-230 thin-client API path
 
 ## Назначение
 
@@ -260,11 +260,9 @@ GET /api/v1/household/personal-fund-carryover?closed_period=…&target_period=�
 
 | HTTP | Поведение |
 | ---- | --------- |
-| 200 | `source: "api"`. **Backend ([FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102)) выполняет расчёт формулы** и возвращает готовые `partners[]` (`starting_fund`, `actual_spend`, `carryover`, `overrun_*`, при `target_period` — `available_personal_fund`). MCP **нормализует** payload в контракт tool, **дополняет** `advance_deduction` из локального advances ledger и выполняет persist log + `mark_deducted` локально |
-| 404 | `source: "mapping"` — полный interim pipeline; MCP считает формулу по transactions + `household_base_share` |
+| 200 | `source: "api"`. **Backend ([FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102) + [FIN-230](https://alexeielizarov.atlassian.net/browse/FIN-230)) выполняет расчёт формулы** (включая incoming из persisted prior run) и возвращает готовые `partners[]`. MCP **нормализует** payload, **дополняет** `advance_deduction` из локального advances ledger и выполняет persist + `mark_deducted`. Query `incoming_carryover` передаётся **только** при explicit `incoming_carryover_override` (thin client; иначе omit) |
+| 404 | `source: "mapping"` — полный interim pipeline; MCP резолвит incoming через cutover (API history + JSON fallback, FIN-163) и считает формулу локально |
 | 5xx / timeout | tool error (без silent fallback) |
-
-Endpoint path уточняется при реализации [FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102); до появления — всегда `mapping`.
 
 ### Резолв / валидация
 
@@ -419,6 +417,6 @@ Endpoint path уточняется при реализации [FIN-102](https:/
 
 ## Утверждение
 
-* **Статус:** Утверждено
-* **Дата:** 2026-07-11 (rev.3)
-* **Следующий шаг:** реализация по команде «реализуй FIN-105»; снять label `mcp-gap` при Done
+* **Статус:** Утверждено (rev.4 — FIN-230 thin-client amend)
+* **Дата:** 2026-07-11 (rev.3); amend 2026-07-26 (rev.4)
+* **Следующий шаг:** Done (FIN-105); API-path incoming ownership — [FIN-230](https://alexeielizarov.atlassian.net/browse/FIN-230)

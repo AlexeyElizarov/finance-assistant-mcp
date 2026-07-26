@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Relates** [FIN-81](https://alexeielizarov.atlassian.net/browse/FIN-81) (in-app UI follow-up), [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103), [FIN-105](https://alexeielizarov.atlassian.net/browse/FIN-105), [FIN-106](https://alexeielizarov.atlassian.net/browse/FIN-106), [FIN-115](https://alexeielizarov.atlassian.net/browse/FIN-115), [FIN-116](https://alexeielizarov.atlassian.net/browse/FIN-116), [FIN-132](https://alexeielizarov.atlassian.net/browse/FIN-132) (detect-only warning).
 
-**Домен:** еженедельная сверка 15 мин — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md) (§ «Еженедельный money check»); ops июля — [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md) (фаза 3).
+**Домен:** еженедельная сверка 15 мин — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (§ «Видимость без слежки»); ops июля — [ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md) (§ money check).
 
 **Статус:** Утверждено (2026-07-11, rev.3)
 
@@ -425,7 +425,7 @@ Warnings **не блокируют** `ok: true` (diagnostic ritual).
 
 ### A2 — ops ritual parity
 
-**Действие:** выполнить чеклист money check из [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md) § «Еженедельный money check» используя **только** `money_check_report` + ручной purchases.md.
+**Действие:** выполнить чеклист money check из [ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md) § «Еженедельный money check» используя **только** `money_check_report` + ручной purchases.md.
 
 **Ожидаемый результат:** не требуются отдельные вызовы `household_base_share`, `household_advances list`, `household_receivables list`, `fetch reconciliation` для prior month.
 

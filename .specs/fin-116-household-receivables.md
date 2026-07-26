@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-116](https://alexeielizarov.atlassian.net/browse/FIN-116); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Relates** [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104) (money check — `outstanding_receivables`), [FIN-115](https://alexeielizarov.atlassian.net/browse/FIN-115) (**не merge** — семейные авансы), [FIN-137](https://alexeielizarov.atlassian.net/browse/FIN-137) (concurrent write — тот же паттерн ledger).
 
-**Домен:** займы третьим лицам — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md) (§ «Займы третьим лицам»); возврат наличными — [accounting.md](../../../assistant/35-finance-assistant/methodology/accounting.md); partner ids — [household-contour-mapping.{profile}.json](../../../assistant/35-finance-assistant/methodology/household-contour-mapping.prod.json).
+**Домен:** займы третьим лицам — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (§ «Займы третьим лицам»); возврат наличными — [accounting.md](../../../assistant/35-finance-assistant/methodology/accounting.md); partner ids — [household-contour-mapping.{profile}.json](../../../assistant/35-finance-assistant/methodology/household-contour-mapping.prod.json).
 
 **Статус:** Утверждено (2026-07-10, rev.3)
 

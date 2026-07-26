@@ -6,6 +6,8 @@
 
 **Статус:** Утверждено (2026-07-19, rev.2)
 
+> **Amend (FIN-241):** surface tool расширен опциональным `expense_owner` (set/clear, owner-only) и additive `expense_owner` в `query_transactions` rows. Контракт — [fin-241-expense-owner-mcp.md](fin-241-expense-owner-mcp.md). FIN-211 Done не пересматривается.
+
 ## Назначение
 
 [FIN-202](https://alexeielizarov.atlassian.net/browse/FIN-202) (**Done**) позволяет одним `PATCH /api/v1/transactions/{id}/category` задать `transaction_type` вместе с совместимой непустой `transaction_category` (`category_source=manual`). MCP `finance-assistant` этого пути не экспонирует: `put_transaction_overrides` пишет map `transaction_key` → `budget_item_id` в reconciliation (**другой домен**); агенты вынуждены raw HTTP или оставлять mis-typed строки.

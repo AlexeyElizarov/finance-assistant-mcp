@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,7 @@ _fetch_transactions = _load_query_plan_fact().fetch_transactions
 
 SUPPORTED_LOG_SCHEMA_VERSION = 1
 HOUSEHOLD_CARRYOVER_API_PATH = "/api/v1/household/personal-fund-carryover"
+HOUSEHOLD_CARRYOVER_RUNS_PATH = "/api/v1/household/personal-fund-carryover/runs"
 LEGACY_JUNE_PERIOD = "2026-06"
 OVERRUN_DISCUSSION_THRESHOLD = 50.0
 CANONICAL_FORMULA = (
@@ -181,6 +183,30 @@ def _find_run(log: dict[str, Any], closed_period: str) -> dict[str, Any] | None:
     return matches[0] if matches else None
 
 
+def _incoming_from_run(
+    run: dict[str, Any] | None,
+    partner_ids: frozenset[str],
+) -> dict[str, float]:
+    """
+    Build incoming map from one history run.
+
+    :param run: History run or None
+    :param partner_ids: Known partners
+    :return: ``partner_id → EUR``
+    """
+    incoming = {pid: 0.0 for pid in partner_ids}
+    if run is None:
+        return incoming
+    partners_block = run.get("partners")
+    if not isinstance(partners_block, dict):
+        return incoming
+    for pid in partner_ids:
+        row = partners_block.get(pid)
+        if isinstance(row, dict):
+            incoming[pid] = round_money(float(row.get("carryover", 0.0)))
+    return incoming
+
+
 def resolve_incoming_carryover(
     log: dict[str, Any],
     closed_period: str,
@@ -189,7 +215,7 @@ def resolve_incoming_carryover(
     override: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """
-    Resolve per-partner incoming carryover for month M.
+    Resolve per-partner incoming carryover for month M from JSON log.
 
     :param log: Carryover log
     :param closed_period: Closed month ``YYYY-MM``
@@ -200,18 +226,122 @@ def resolve_incoming_carryover(
     if override is not None:
         return {pid: round_money(float(override.get(pid, 0.0))) for pid in partner_ids}
     prior = prev_calendar_month(closed_period)
-    prior_run = _find_run(log, prior)
-    incoming = {pid: 0.0 for pid in partner_ids}
-    if prior_run is None:
-        return incoming
-    partners_block = prior_run.get("partners")
-    if not isinstance(partners_block, dict):
-        return incoming
-    for pid in partner_ids:
-        row = partners_block.get(pid)
-        if isinstance(row, dict):
-            incoming[pid] = round_money(float(row.get("carryover", 0.0)))
-    return incoming
+    return _incoming_from_run(_find_run(log, prior), partner_ids)
+
+
+def fetch_carryover_run_api(
+    api: ApiClient,
+    closed_period: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """
+    Fetch one history run from backend (FIN-163).
+
+    :param api: API client
+    :param closed_period: Canonical ``YYYY-MM``
+    :return: ``("ok", run)`` | ``("not_found", None)`` | ``("unavailable", None)``
+    """
+    path = f"{HOUSEHOLD_CARRYOVER_RUNS_PATH}/{closed_period}"
+    try:
+        status, body = api.request("GET", path)
+    except (OSError, TimeoutError, urllib.error.URLError):
+        return "unavailable", None
+    if status == 200 and isinstance(body, dict):
+        return "ok", body
+    if status == 404:
+        err = body.get("error") if isinstance(body, dict) else None
+        code = err.get("code") if isinstance(err, dict) else None
+        if code == "not_found" or code is None:
+            return "not_found", None
+        return "unavailable", None
+    if status >= 500:
+        return "unavailable", None
+    return "unavailable", None
+
+
+def put_carryover_run_api(
+    api: ApiClient,
+    *,
+    closed_period: str,
+    target_period: str | None,
+    source: str,
+    partners: list[dict[str, Any]],
+    advances_marked: bool,
+    computed_at: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """
+    Upsert history run via backend API.
+
+    :param api: API client
+    :param closed_period: Closed month
+    :param target_period: Optional target month
+    :param source: Run source enum
+    :param partners: Partner result rows
+    :param advances_marked: Advances marked flag
+    :param computed_at: UTC ISO timestamp
+    :return: ``("ok", body)`` | ``("unavailable", None)`` | raises on 4xx validation
+    """
+    compact_partners: dict[str, dict[str, float]] = {}
+    for row in partners:
+        pid = str(row["id"])
+        compact_partners[pid] = {
+            "carryover": round_money(float(row["carryover"])),
+            "advance_deduction": round_money(float(row.get("advance_deduction", 0.0))),
+            "overrun_amount": round_money(float(row.get("overrun_amount", 0.0))),
+        }
+    computed = str(computed_at).strip()
+    if computed and "T" in computed and not (
+        computed.endswith("Z") or "+" in computed[10:] or computed.count("-") > 2
+    ):
+        computed = f"{computed}Z"
+    payload = {
+        "closed_period": closed_period,
+        "target_period": target_period,
+        "source": source if source in {"api", "mapping", "manual_runbook", "migrated"} else "api",
+        "partners": compact_partners,
+        "advances_marked": advances_marked,
+        "computed_at": computed,
+    }
+    try:
+        status, body = api.request("PUT", HOUSEHOLD_CARRYOVER_RUNS_PATH, data=payload)
+    except (OSError, TimeoutError, urllib.error.URLError):
+        return "unavailable", None
+    if status == 200 and isinstance(body, dict):
+        return "ok", body
+    if status == 404:
+        return "unavailable", None
+    if status >= 500:
+        return "unavailable", None
+    raise RuntimeError(
+        f"PUT {HOUSEHOLD_CARRYOVER_RUNS_PATH} -> HTTP {status}: {body}"
+    )
+
+
+def resolve_incoming_carryover_cutover(
+    api: ApiClient,
+    log: dict[str, Any],
+    closed_period: str,
+    partner_ids: frozenset[str],
+    *,
+    override: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """
+    Resolve incoming with API-first history + JSON fallback (FIN-163 D-10/D-20).
+
+    :param api: API client
+    :param log: Local JSON carryover log
+    :param closed_period: Closed month M
+    :param partner_ids: Known partners
+    :param override: Optional explicit override
+    :return: ``partner_id → EUR``
+    """
+    if override is not None:
+        return {pid: round_money(float(override.get(pid, 0.0))) for pid in partner_ids}
+    prior = prev_calendar_month(closed_period)
+    status, run = fetch_carryover_run_api(api, prior)
+    if status == "ok":
+        return _incoming_from_run(run, partner_ids)
+    # not_found or unavailable → JSON fallback; 0 only if absent in both
+    return resolve_incoming_carryover(log, closed_period, partner_ids, override=None)
 
 
 def resolve_personal_expense_item_ids(
@@ -388,6 +518,8 @@ def probe_household_carryover_api(
     api: ApiClient,
     closed_period: str,
     target_period: str | None,
+    *,
+    incoming_carryover: dict[str, float] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """
     Probe FIN-102 household carryover endpoint.
@@ -395,12 +527,18 @@ def probe_household_carryover_api(
     :param api: API client
     :param closed_period: Closed month
     :param target_period: Optional target month
+    :param incoming_carryover: Optional map passed as query (FIN-105 semantics)
     :return: ``("api", body)`` or ``("mapping", None)``
     :raises RuntimeError: On 5xx or unexpected errors
     """
     params: dict[str, str] = {"closed_period": period_start(closed_period)}
     if target_period:
         params["target_period"] = period_start(target_period)
+    if incoming_carryover is not None:
+        params["incoming_carryover"] = json.dumps(
+            {pid: float(amount) for pid, amount in incoming_carryover.items()},
+            separators=(",", ":"),
+        )
     query = urllib.parse.urlencode(params)
     status, body = api.request("GET", f"{HOUSEHOLD_CARRYOVER_API_PATH}?{query}")
     if status == 200 and isinstance(body, dict):
@@ -720,7 +858,13 @@ def compute_personal_fund_carryover(
     if late_warning:
         warnings.append(late_warning)
 
-    source, api_body = probe_household_carryover_api(api, closed_yyyy_mm, target_yyyy_mm)
+    # FIN-230: API compute owns history resolution; pass only explicit override.
+    source, api_body = probe_household_carryover_api(
+        api,
+        closed_yyyy_mm,
+        target_yyyy_mm,
+        incoming_carryover=override_map,
+    )
     spend_warnings: list[str] = []
     if source == "api" and api_body is not None:
         partners_rows = normalize_api_partners(
@@ -730,6 +874,13 @@ def compute_personal_fund_carryover(
             include_target=include_target,
         )
     else:
+        incoming = resolve_incoming_carryover_cutover(
+            api,
+            carryover_log,
+            closed_yyyy_mm,
+            partner_ids,
+            override=override_map,
+        )
         base_closed_payload = compute_household_base_share(
             api,
             profile=profile,
@@ -758,12 +909,6 @@ def compute_personal_fund_carryover(
                 for row in base_target_payload.get("partners", [])
                 if isinstance(row, dict) and row.get("id")
             }
-        incoming = resolve_incoming_carryover(
-            carryover_log,
-            closed_yyyy_mm,
-            partner_ids,
-            override=override_map,
-        )
         prior_advance = sum_open_for_issue_period(
             ledger, prev_calendar_month(closed_yyyy_mm)
         )
@@ -802,21 +947,37 @@ def compute_personal_fund_carryover(
     log_persisted = False
     advances_marked = False
     marked_advances: dict[str, Any] | None = None
+    persist_target = "json"
 
     if not effective_dry_run:
         from household_advances import utc_now_iso
 
-        upsert_carryover_run(
-            carryover_log,
+        computed_at = utc_now_iso()
+        api_status, _ = put_carryover_run_api(
+            api,
             closed_period=closed_yyyy_mm,
             target_period=target_yyyy_mm,
             source=source,
             partners=partners_rows,
             advances_marked=False,
-            computed_at=utc_now_iso(),
+            computed_at=computed_at,
         )
-        save_carryover_log(log_path, carryover_log)
-        log_persisted = True
+        if api_status == "ok":
+            persist_target = "api"
+            log_persisted = True
+        else:
+            upsert_carryover_run(
+                carryover_log,
+                closed_period=closed_yyyy_mm,
+                target_period=target_yyyy_mm,
+                source=source,
+                partners=partners_rows,
+                advances_marked=False,
+                computed_at=computed_at,
+            )
+            save_carryover_log(log_path, carryover_log)
+            persist_target = "json"
+            log_persisted = True
 
         if effective_mark and any(amount > 0 for amount in advance_deduction.values()):
             try:
@@ -825,10 +986,25 @@ def compute_personal_fund_carryover(
                 )
                 save_ledger(advances_path, ledger)
                 advances_marked = True
-                for run in carryover_log.get("runs", []):
-                    if isinstance(run, dict) and run.get("closed_period") == closed_yyyy_mm:
-                        run["advances_marked"] = True
-                save_carryover_log(log_path, carryover_log)
+                if persist_target == "api":
+                    put_status, _ = put_carryover_run_api(
+                        api,
+                        closed_period=closed_yyyy_mm,
+                        target_period=target_yyyy_mm,
+                        source=source,
+                        partners=partners_rows,
+                        advances_marked=True,
+                        computed_at=computed_at,
+                    )
+                    if put_status != "ok":
+                        raise RuntimeError(
+                            "mark_deducted succeeded but history PUT advances_marked update failed"
+                        )
+                else:
+                    for run in carryover_log.get("runs", []):
+                        if isinstance(run, dict) and run.get("closed_period") == closed_yyyy_mm:
+                            run["advances_marked"] = True
+                    save_carryover_log(log_path, carryover_log)
             except Exception as exc:
                 raise RuntimeError(
                     f"mark_deducted failed after carryover log persisted: {exc}"
@@ -845,6 +1021,7 @@ def compute_personal_fund_carryover(
         "dry_run": effective_dry_run,
         "advances_marked": advances_marked,
         "log_persisted": log_persisted,
+        "persist_target": persist_target if not effective_dry_run else None,
         "formula": CANONICAL_FORMULA,
         "partners": partners_rows,
         "warnings": warnings,

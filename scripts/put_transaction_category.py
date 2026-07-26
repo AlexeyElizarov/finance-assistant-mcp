@@ -1,4 +1,4 @@
-"""MCP helper: PATCH transaction type + category (FIN-211 / FIN-202)."""
+"""MCP helper: PATCH transaction type/category and expense_owner (FIN-211 / FIN-241)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,10 @@ _TRANSACTION_FIELDS = (
     "category_source",
     "classification_status",
     "reconciliation_note",
+    "expense_owner",
 )
+
+_MISSING = object()
 
 
 def format_api_error(
@@ -66,51 +69,80 @@ def _require_non_empty(name: str, value: Any) -> str:
     return text
 
 
+def _non_empty_stripped(value: Any) -> str | None:
+    """
+    Return stripped non-empty string, or ``None`` when unset/blank.
+
+    :param value: Raw argument value
+    :return: Stripped value or ``None``
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
 def put_transaction_category(
     api: ApiClient,
     *,
     profile: str,
     base: str,
     transaction_id: Any,
-    transaction_type: Any,
-    transaction_category: Any,
+    transaction_type: Any = None,
+    transaction_category: Any = None,
     allow_closed: bool = False,
-    reconciliation_note: Any = ...,
-    category_source: Any = ...,
+    reconciliation_note: Any = _MISSING,
+    category_source: Any = _MISSING,
+    expense_owner: Any = _MISSING,
 ) -> dict[str, Any]:
     """
-    Set ``transaction_type`` with a compatible non-empty category (FIN-211).
+    PATCH transaction type/category and/or ``expense_owner`` (FIN-211 / FIN-241).
 
-    Thin wrap of ``PATCH /api/v1/transactions/{id}/category`` (FIN-202).
+    Thin wrap of ``PATCH /api/v1/transactions/{id}/category``.
 
     :param api: Authenticated API client
     :param profile: Data profile
     :param base: API base URL
     :param transaction_id: Row UUID
-    :param transaction_type: ``C``/``P``/``S``/``I`` (strip; enum via API)
-    :param transaction_category: Non-empty category id
+    :param transaction_type: ``C``/``P``/``S``/``I`` when correcting type (with category)
+    :param transaction_category: Non-empty category id when correcting type
     :param allow_closed: Closed-period bypass query flag
-    :param reconciliation_note: Include in body when not sentinel (FIN-202 D-10)
-    :param category_source: Forbidden in v1 when not sentinel (D-04)
+    :param reconciliation_note: Include in body when not sentinel
+    :param category_source: Forbidden when not sentinel (FIN-211 D-04)
+    :param expense_owner: Include in body when not sentinel (no MCP normalize)
     :return: Tool success payload with ``transaction`` subset
     :raises ValueError: Pre-HTTP validation failure
     :raises RuntimeError: Non-200 API response
     """
-    if category_source is not ...:
+    if category_source is not _MISSING:
         raise ValueError(
             "category_source is not accepted in put_transaction_category v1 "
             "(omit the key; backend applies implicit manual)"
         )
 
     tx_id = _require_non_empty("transaction_id", transaction_id)
-    tx_type = _require_non_empty("transaction_type", transaction_type)
-    tx_category = _require_non_empty("transaction_category", transaction_category)
+    type_stripped = _non_empty_stripped(transaction_type)
+    category_stripped = _non_empty_stripped(transaction_category)
+    has_type = type_stripped is not None
+    has_category = category_stripped is not None
+    has_owner = expense_owner is not _MISSING
 
-    body: dict[str, Any] = {
-        "transaction_type": tx_type,
-        "transaction_category": tx_category,
-    }
-    if reconciliation_note is not ...:
+    if has_type ^ has_category:
+        raise ValueError(
+            "transaction_type and transaction_category must be provided together"
+        )
+    if not (has_type and has_category) and not has_owner:
+        raise ValueError(
+            "provide transaction_type+transaction_category and/or expense_owner"
+        )
+
+    body: dict[str, Any] = {}
+    if has_type:
+        body["transaction_type"] = type_stripped
+        body["transaction_category"] = category_stripped
+    if has_owner:
+        body["expense_owner"] = expense_owner
+    if reconciliation_note is not _MISSING:
         body["reconciliation_note"] = reconciliation_note
 
     query = urllib.parse.urlencode(

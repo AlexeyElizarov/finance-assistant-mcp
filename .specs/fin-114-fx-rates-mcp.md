@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-114](https://alexeielizarov.atlassian.net/browse/FIN-114); родитель [FIN-112](https://alexeielizarov.atlassian.net/browse/FIN-112); **Blocks** [FIN-113](https://alexeielizarov.atlassian.net/browse/FIN-113) (Done); **Relates** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103), [FIN-121](https://alexeielizarov.atlassian.net/browse/FIN-121), [FIN-124](https://alexeielizarov.atlassian.net/browse/FIN-124) (OpenUI5 — вне scope).
 
-**Домен:** [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md) (доход Николая 20 000 ₽/мес в € по курсу); backend API — [fin-113-fx-rates-api.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin-113-fx-rates-api.md).
+**Домен:** [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (доход Николая 20 000 ₽/мес в € по курсу); backend API — [fin-113-fx-rates-api.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin-113-fx-rates-api.md).
 
 **Статус:** Утверждено (2026-07-11, rev.5)
 

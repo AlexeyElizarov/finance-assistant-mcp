@@ -2507,19 +2507,29 @@ class CreateBudgetItemRecalculateError(RuntimeError):
         self.context = context
 
 
-def assert_budget_item_name_available(api: ApiClient, name: str) -> None:
+def assert_budget_item_name_available(
+    api: ApiClient,
+    name: str,
+    *,
+    exclude_id: str | None = None,
+) -> None:
     """
-    Reject create when an article with the same name already exists (FIN-109 D-02).
+    Reject create/rename when an article with the same name already exists.
 
     Comparison uses ``strip()`` + ``casefold()`` on both sides; NFC/NFD not normalized.
+    FIN-109 D-02 (create); FIN-227 (rename, with ``exclude_id`` = self).
 
     :param api: API client
     :param name: Proposed article name (already trimmed by caller)
+    :param exclude_id: Budget item id to ignore (self on rename)
     :raises RuntimeError: When a case-insensitive exact match exists
     """
     needle = name.strip().casefold()
     data = api.get_json("/api/v1/budget/items")
     for item in data.get("budget_items", []):
+        item_id = str(item.get("id", ""))
+        if exclude_id is not None and item_id == exclude_id:
+            continue
         if str(item.get("name", "")).strip().casefold() == needle:
             raise RuntimeError(f"budget item already exists: {item.get('name')!r}")
 
@@ -2931,3 +2941,416 @@ def create_category(
     if status != 201 or not isinstance(created, dict):
         raise RuntimeError(f"POST /api/v1/categories -> {status}: {created}")
     return created
+
+
+_MASTER_PATCH_FIELDS = frozenset(
+    {
+        "planning_type",
+        "name",
+        "flow_type",
+        "operation_category_id",
+        "keywords",
+        "item_status",
+    },
+)
+
+
+class UpdateBudgetItemConvertError(RuntimeError):
+    """
+    Convert plan-item PUT failed; article rolled back (FIN-227 D-14).
+
+    :param message: Error text
+    :param context: Rollback / convert context for ops
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+class UpdateBudgetItemCriticalError(RuntimeError):
+    """
+    Convert plan-item PUT failed and article rollback also failed (FIN-227 D-14).
+
+    :param message: Error text
+    :param context: Mismatch contexts for ops remediation
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+class UpdateBudgetItemRecalculateError(RuntimeError):
+    """
+    Recalculate failed after successful article (+ convert) mutation (FIN-227).
+
+    :param message: Error text
+    :param context: Successful mutation fields for ops retry
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.context = context
+
+
+def budget_item_put_body(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Build PUT body from a budget item GET/PUT response (FIN-227 D-01).
+
+    :param item: Source item dict
+    :return: Body accepted by ``PUT /budget/items/{id}``
+    """
+    return {
+        "id": str(item["id"]),
+        "name": str(item["name"]),
+        "flow_type": str(item["flow_type"]),
+        "operation_category_id": str(item["operation_category_id"]),
+        "planning_type": str(item["planning_type"]),
+        "keywords": list(item.get("keywords") or []),
+        "status": str(item["status"]),
+    }
+
+
+def _list_act_plan_items_for_budget_item(
+    api: ApiClient,
+    *,
+    budget_version_id: str,
+    budget_item_id: str,
+) -> list[dict[str, Any]]:
+    """
+    List ACT-version plan-items for one budget item (FIN-227 D-13).
+
+    :param api: API client
+    :param budget_version_id: ACT version UUID
+    :param budget_item_id: Article UUID
+    :return: Matching plan-item dicts
+    """
+    data = api.get_json(
+        f"/api/v1/budget/plan-items?budget_version_id={budget_version_id}",
+    )
+    rows = data.get("budget_plan_items", [])
+    if not isinstance(rows, list):
+        raise RuntimeError("GET plan-items: budget_plan_items is not a list")
+    return [row for row in rows if str(row.get("budget_item_id")) == budget_item_id]
+
+
+def update_budget_item(
+    api: ApiClient,
+    *,
+    article: str | None = None,
+    budget_item_id: str | None = None,
+    planning_type: str | None = None,
+    name: str | None = None,
+    flow_type: str | None = None,
+    operation_category_id: str | None = None,
+    keywords: list[str] | None = None,
+    item_status: str | None = None,
+    convert_plan_item: bool = False,
+    amount: Any = None,
+    start_period: Period | None = None,
+    end_period: Period | None = None,
+    periodicity: str = "M",
+    forecast_method: str = "MAN",
+    currency: str | None = None,
+    recalculate: bool | None = None,
+    provided_fields: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """
+    Update budget article master fields; optional ACT plan-item convert (FIN-227).
+
+    :param api: API client
+    :param article: Article substring for resolve
+    :param budget_item_id: Article UUID for resolve
+    :param planning_type: Optional new ``REG`` / ``IRR``
+    :param name: Optional new name
+    :param flow_type: Optional new flow type
+    :param operation_category_id: Optional new category code (non-empty)
+    :param keywords: Optional full keyword list replacement
+    :param item_status: Optional article ``status``
+    :param convert_plan_item: Convert exactly one ACT plan-item when type changes
+    :param amount: Required for convert→REG; optional for convert→IRR
+    :param start_period: Required for convert→REG
+    :param end_period: Optional REG end month for convert
+    :param periodicity: REG periodicity for convert→REG
+    :param forecast_method: IRR forecast method for convert→IRR
+    :param currency: Optional currency override for convert
+    :param recalculate: Explicit recalculate flag; ``None`` → default per D-05
+    :param provided_fields: Argument keys explicitly passed by caller
+    :return: Tool result fields
+    :raises UpdateBudgetItemConvertError: Convert failed; article rolled back
+    :raises UpdateBudgetItemCriticalError: Convert and rollback both failed
+    :raises UpdateBudgetItemRecalculateError: Mutations OK; recalculate failed
+    """
+    patch_keys = provided_fields & _MASTER_PATCH_FIELDS
+    if not patch_keys:
+        raise ValueError(
+            "at least one master field required: "
+            "planning_type, name, flow_type, operation_category_id, "
+            "keywords, item_status",
+        )
+
+    item_id, _resolved_name, _ = resolve_budget_item_id_for_plan(
+        api,
+        article,
+        budget_item_id,
+    )
+    current_item = api.get_json(f"/api/v1/budget/items/{item_id}")
+    if not isinstance(current_item, dict):
+        raise RuntimeError(f"GET budget/items/{item_id}: expected object")
+
+    planning_type_before = str(current_item.get("planning_type", "")).strip().upper()
+    new_planning_type = planning_type_before
+    if "planning_type" in provided_fields:
+        if planning_type is None or not str(planning_type).strip():
+            raise ValueError("planning_type must be REG or IRR")
+        new_planning_type = str(planning_type).strip().upper()
+        if new_planning_type not in {"REG", "IRR"}:
+            raise ValueError(f"planning_type must be REG or IRR, got {new_planning_type!r}")
+
+    type_changed = new_planning_type != planning_type_before
+    if convert_plan_item and not type_changed:
+        raise ValueError(
+            "convert_plan_item requires an actual planning_type change",
+        )
+
+    if "name" in provided_fields:
+        if name is None or not str(name).strip():
+            raise ValueError("name is required")
+    if "operation_category_id" in provided_fields:
+        if operation_category_id is None or not str(operation_category_id).strip():
+            raise ValueError("operation_category_id cannot be empty")
+
+    version_id = resolve_act_version_id(api)
+    version = fetch_budget_version(api, version_id)
+    assert_version_mutable(version=version)
+
+    convert_path = False
+    current_plan: dict[str, Any] | None = None
+    if type_changed:
+        candidates = _list_act_plan_items_for_budget_item(
+            api,
+            budget_version_id=version_id,
+            budget_item_id=item_id,
+        )
+        if candidates and not convert_plan_item:
+            ids = [str(row.get("id")) for row in candidates]
+            raise RuntimeError(
+                "planning_type change blocked: ACT plan-items exist; "
+                f"pass convert_plan_item=true or resolve conflicts. "
+                f"conflicting_plan_item_ids={ids}",
+            )
+        if convert_plan_item and len(candidates) > 1:
+            ids = [str(row.get("id")) for row in candidates]
+            raise RuntimeError(
+                f"ambiguous ACT plan-items for convert: {ids}",
+            )
+        if convert_plan_item and len(candidates) == 1:
+            convert_path = True
+            plan_id = str(candidates[0]["id"])
+            current_plan = api.get_json(f"/api/v1/budget/plan-items/{plan_id}")
+            if not isinstance(current_plan, dict):
+                raise RuntimeError(f"GET plan-items/{plan_id}: expected object")
+
+    if "name" in provided_fields:
+        trimmed = str(name).strip()
+        assert_budget_item_name_available(api, trimmed, exclude_id=item_id)
+
+    put_article = budget_item_put_body(current_item)
+    if "planning_type" in provided_fields:
+        put_article["planning_type"] = new_planning_type
+    if "name" in provided_fields:
+        put_article["name"] = str(name).strip()
+    if "flow_type" in provided_fields:
+        put_article["flow_type"] = str(flow_type).strip()
+    if "operation_category_id" in provided_fields:
+        put_article["operation_category_id"] = str(operation_category_id).strip()
+    if "keywords" in provided_fields:
+        if keywords is None:
+            raise ValueError("keywords must be a list")
+        if not isinstance(keywords, list):
+            raise ValueError("keywords must be a list")
+        put_article["keywords"] = list(keywords)
+    if "item_status" in provided_fields:
+        put_article["status"] = str(item_status)
+
+    rollback_body = budget_item_put_body(current_item)
+
+    if convert_path:
+        assert current_plan is not None
+        plan_put = _build_convert_plan_item_put_body(
+            current_plan=current_plan,
+            new_planning_type=new_planning_type,
+            amount=amount,
+            start_period=start_period,
+            end_period=end_period,
+            periodicity=periodicity,
+            forecast_method=forecast_method,
+            currency=currency,
+            provided_fields=provided_fields,
+        )
+
+    status, updated_item = api.request(
+        "PUT",
+        f"/api/v1/budget/items/{item_id}",
+        data=put_article,
+    )
+    if status != 200 or not isinstance(updated_item, dict):
+        raise RuntimeError(f"PUT budget/items/{item_id} -> {status}: {updated_item}")
+
+    converted = False
+    updated_plan: dict[str, Any] | None = None
+    if convert_path:
+        assert current_plan is not None
+        plan_id = str(current_plan["id"])
+        plan_status, updated_plan = api.request(
+            "PUT",
+            f"/api/v1/budget/plan-items/{plan_id}",
+            data=plan_put,
+        )
+        if plan_status != 200 or not isinstance(updated_plan, dict):
+            plan_err = f"PUT plan-items/{plan_id} -> {plan_status}: {updated_plan}"
+            rb_status, rb_body = api.request(
+                "PUT",
+                f"/api/v1/budget/items/{item_id}",
+                data=rollback_body,
+            )
+            ctx: dict[str, Any] = {
+                "budget_item_id": item_id,
+                "budget_version_id": version_id,
+                "article_before": rollback_body,
+                "attempted_article_after": updated_item,
+                "plan_item_error": plan_err,
+                "conflicting_plan_item_ids": [plan_id],
+            }
+            if rb_status == 200 and isinstance(rb_body, dict):
+                raise UpdateBudgetItemConvertError(
+                    f"conversion failed, changes rolled back: {plan_err}",
+                    ctx,
+                )
+            ctx["article_after"] = updated_item
+            ctx["rollback_error"] = f"PUT budget/items/{item_id} -> {rb_status}: {rb_body}"
+            raise UpdateBudgetItemCriticalError(
+                f"conversion failed and rollback failed: {plan_err}; "
+                f"{ctx['rollback_error']}",
+                ctx,
+            )
+        converted = True
+
+    base_result: dict[str, Any] = {
+        "budget_item_id": item_id,
+        "budget_version_id": version_id,
+        "article": str(updated_item.get("name", "")),
+        "planning_type_before": planning_type_before,
+        "planning_type_after": str(updated_item.get("planning_type", "")),
+        "budget_item": updated_item,
+        "converted": converted,
+    }
+    if converted and updated_plan is not None:
+        base_result["plan_item_id"] = str(updated_plan["id"])
+        base_result["plan_item"] = updated_plan
+
+    if recalculate is None:
+        effective_recalculate = converted
+    else:
+        effective_recalculate = recalculate
+
+    if not effective_recalculate:
+        return base_result
+
+    try:
+        recalc_body = recalculate_budget_projections(api, version_id)
+    except RuntimeError as exc:
+        raise UpdateBudgetItemRecalculateError(str(exc), base_result) from exc
+
+    base_result["recalculate"] = {
+        "budget_version_id": version_id,
+        "projection_rows": projection_rows_count(recalc_body),
+    }
+    return base_result
+
+
+def _build_convert_plan_item_put_body(
+    *,
+    current_plan: dict[str, Any],
+    new_planning_type: str,
+    amount: Any,
+    start_period: Period | None,
+    end_period: Period | None,
+    periodicity: str,
+    forecast_method: str,
+    currency: str | None,
+    provided_fields: frozenset[str],
+) -> dict[str, Any]:
+    """
+    Build plan-item PUT body for planning_type convert (FIN-227 D-12 / D-16).
+
+    :param current_plan: Existing ACT plan-item
+    :param new_planning_type: Target ``REG`` or ``IRR``
+    :param amount: Optional amount override
+    :param start_period: REG start (required for REG)
+    :param end_period: Optional REG end
+    :param periodicity: REG periodicity
+    :param forecast_method: IRR forecast method
+    :param currency: Optional currency override
+    :param provided_fields: Explicit caller keys
+    :return: PUT body including ``id``
+    """
+    plan_id = str(current_plan["id"])
+    version_id = str(current_plan["budget_version_id"])
+    item_id = str(current_plan["budget_item_id"])
+    status = str(current_plan.get("status") or "ACTIVE")
+    cur = (
+        currency.strip().upper()
+        if currency is not None and str(currency).strip()
+        else str(current_plan.get("currency") or "EUR").strip().upper()
+    )
+
+    if new_planning_type == "REG":
+        if amount is None:
+            raise ValueError("amount is required for convert to REG")
+        if start_period is None:
+            raise ValueError("start_period is required for convert to REG")
+        if end_period is not None:
+            assert_period_range(start_period, end_period)
+        amount_norm = normalize_plan_amount(amount)
+        body = build_reg_plan_item_body(
+            budget_version_id=version_id,
+            budget_item_id=item_id,
+            amount=amount_norm,
+            currency=cur,
+            start_period=start_period,
+            end_period=end_period,
+            periodicity=periodicity,
+        )
+        body["id"] = plan_id
+        body["status"] = status
+        return body
+
+    if "start_period" in provided_fields:
+        raise ValueError("start_period is not allowed for convert to IRR")
+    if "end_period" in provided_fields:
+        raise ValueError("end_period is not allowed for convert to IRR")
+    if "periodicity" in provided_fields:
+        raise ValueError("periodicity is not allowed for convert to IRR")
+    if amount is None:
+        amount_norm = normalize_plan_amount(current_plan.get("amount", "0"))
+    else:
+        amount_norm = normalize_plan_amount(amount)
+    fm = (
+        forecast_method.strip().upper()
+        if "forecast_method" in provided_fields
+        else "MAN"
+    )
+    if fm not in {"MAN", "AVG"}:
+        raise ValueError(f"forecast_method must be MAN or AVG, got {fm!r}")
+    body = build_irr_plan_item_body(
+        budget_version_id=version_id,
+        budget_item_id=item_id,
+        amount=amount_norm,
+        currency=cur,
+        forecast_method=fm,
+    )
+    body["id"] = plan_id
+    body["status"] = status
+    return body

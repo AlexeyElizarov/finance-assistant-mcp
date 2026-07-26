@@ -276,10 +276,9 @@ class PutTransactionCategoryTests(unittest.TestCase):
         tools_list = asyncio.run(server.list_tools())
         tool = next(t for t in tools_list if t.name == "put_transaction_category")
         required = tool.inputSchema.get("required") or []
-        self.assertEqual(
-            set(required),
-            {"transaction_id", "transaction_type", "transaction_category"},
-        )
+        # FIN-241: schema required = transaction_id only; type/category conditional
+        self.assertEqual(set(required), {"transaction_id"})
+        self.assertIn("expense_owner", tool.inputSchema["properties"])
 
 
 class QueryTransactionsLookupTests(unittest.TestCase):
@@ -317,6 +316,7 @@ class QueryTransactionsLookupTests(unittest.TestCase):
         self.assertEqual(row["id"], TX_ID)
         self.assertEqual(row["transaction_type"], "I")
         self.assertNotIn("transaction_key", row)
+        self.assertIsNone(row["expense_owner"])
         self.assertEqual(row["category"], "")
         self.assertEqual(row["provider"], "sparkasse_sepa")
 

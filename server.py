@@ -49,6 +49,9 @@ from monthly_close_lib import (  # noqa: E402
     CreateBudgetItemPlanItemError,
     CreateBudgetItemRecalculateError,
     CreatePlanItemRecalculateError,
+    UpdateBudgetItemConvertError,
+    UpdateBudgetItemCriticalError,
+    UpdateBudgetItemRecalculateError,
     UpdatePlanItemRecalculateError,
     act_horizon_periods,
     apply_keywords_file,
@@ -78,6 +81,7 @@ from monthly_close_lib import (  # noqa: E402
     create_budget_item,
     create_category,
     create_plan_item,
+    update_budget_item,
     update_plan_item,
     upsert_expense_project,
     verify_period,
@@ -89,6 +93,7 @@ _query_transactions = _load_script_module("query_transactions", "query-transacti
 _delete_by_filter = _load_script_module("delete_by_filter", "delete-by-filter.py")
 _household_base_share = _load_script_module("household_base_share", "household_base_share.py")
 _fx_rates = _load_script_module("fx_rates", "fx_rates.py")
+_households = _load_script_module("households", "households.py")
 _household_advances = _load_script_module("household_advances", "household_advances.py")
 _household_receivables = _load_script_module("household_receivables", "household_receivables.py")
 _personal_fund_carryover = _load_script_module("personal_fund_carryover", "personal_fund_carryover.py")
@@ -111,6 +116,12 @@ run_delete_by_filter = _delete_by_filter.run_delete_by_filter
 compute_household_base_share = _household_base_share.compute_household_base_share
 list_fx_rates = _fx_rates.list_fx_rates
 upsert_fx_rate = _fx_rates.upsert_fx_rate
+list_households = _households.list_households
+upsert_household = _households.upsert_household
+list_household_members = _households.list_household_members
+upsert_household_member = _households.upsert_household_member
+list_bank_accounts = _households.list_bank_accounts
+upsert_bank_account = _households.upsert_bank_account
 run_household_advances = _household_advances.run_household_advances
 run_household_receivables = _household_receivables.run_household_receivables
 compute_personal_fund_carryover = _personal_fund_carryover.compute_personal_fund_carryover
@@ -608,6 +619,73 @@ def _handle_upsert_fx_rate(arguments: dict[str, Any]) -> list[types.TextContent]
     return _json_text(payload)
 
 
+def _handle_list_households(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_households(api, profile=profile, base=base)
+    return _json_text(payload)
+
+
+def _handle_upsert_household(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = upsert_household(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_list_household_members(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_household_members(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_upsert_household_member(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = upsert_household_member(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_list_bank_accounts(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_bank_accounts(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_upsert_bank_account(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = upsert_bank_account(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
 def _handle_household_advances(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     action = str(arguments["action"])
@@ -704,6 +782,8 @@ def _handle_put_transaction_category(arguments: dict[str, Any]) -> list[types.Te
         kwargs["reconciliation_note"] = arguments.get("reconciliation_note")
     if "category_source" in arguments:
         kwargs["category_source"] = arguments.get("category_source")
+    if "expense_owner" in arguments:
+        kwargs["expense_owner"] = arguments.get("expense_owner")
     payload = put_transaction_category(api, profile=profile, base=base, **kwargs)
     return _json_text(payload)
 
@@ -811,6 +891,57 @@ def _handle_update_plan_item(arguments: dict[str, Any]) -> list[types.TextConten
             recalculate=bool(arguments.get("recalculate", True)),
         )
     except UpdatePlanItemRecalculateError as exc:
+        return _json_text(
+            {
+                "ok": False,
+                "error": str(exc),
+                "profile": profile,
+                "base": base,
+                **exc.context,
+            },
+        )
+    return _json_text({"ok": True, "profile": profile, "base": base, **result})
+
+
+def _handle_update_budget_item(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    provided = frozenset(arguments.keys())
+    start_raw = arguments.get("start_period")
+    start_period = parse_period(str(start_raw)) if start_raw else None
+    end_raw = arguments.get("end_period")
+    end_period = parse_period(str(end_raw)) if end_raw else None
+    recalculate_arg: bool | None
+    if "recalculate" in arguments:
+        recalculate_arg = bool(arguments["recalculate"])
+    else:
+        recalculate_arg = None
+    try:
+        result = update_budget_item(
+            api,
+            article=arguments.get("article"),
+            budget_item_id=arguments.get("budget_item_id"),
+            planning_type=arguments.get("planning_type"),
+            name=arguments.get("name"),
+            flow_type=arguments.get("flow_type"),
+            operation_category_id=arguments.get("operation_category_id"),
+            keywords=arguments.get("keywords"),
+            item_status=arguments.get("item_status"),
+            convert_plan_item=bool(arguments.get("convert_plan_item", False)),
+            amount=arguments.get("amount"),
+            start_period=start_period,
+            end_period=end_period,
+            periodicity=str(arguments.get("periodicity") or "M"),
+            forecast_method=str(arguments.get("forecast_method") or "MAN"),
+            currency=arguments.get("currency"),
+            recalculate=recalculate_arg,
+            provided_fields=provided,
+        )
+    except (
+        UpdateBudgetItemConvertError,
+        UpdateBudgetItemCriticalError,
+        UpdateBudgetItemRecalculateError,
+    ) as exc:
         return _json_text(
             {
                 "ok": False,
@@ -940,6 +1071,7 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
                     "indicator": r.indicator,
                     "category": r.category,
                     "transaction_type": r.transaction_type,
+                    "expense_owner": r.expense_owner,
                     "provider": r.provider,
                     "description": r.description,
                 }
@@ -1367,6 +1499,131 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="list_households",
+            description=(
+                "Список домохозяйств профиля (FIN-240): GET /api/v1/households."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                },
+            },
+        ),
+        types.Tool(
+            name="upsert_household",
+            description=(
+                "Upsert домохозяйства (FIN-240): PUT /api/v1/households/{id}. "
+                "Optional is_active: omit = keep/default API."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "id": {"type": "string", "description": "Household id (path)"},
+                    "name": {"type": "string"},
+                    "is_active": {
+                        "type": "boolean",
+                        "description": "Optional; omit = keep/default",
+                    },
+                },
+                "required": ["id", "name"],
+            },
+        ),
+        types.Tool(
+            name="list_household_members",
+            description=(
+                "Список членов домохозяйства (FIN-240): "
+                "GET /api/v1/households/{id}/members."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                },
+                "required": ["household_id"],
+            },
+        ),
+        types.Tool(
+            name="upsert_household_member",
+            description=(
+                "Upsert члена домохозяйства (FIN-240): "
+                "PUT /api/v1/households/{id}/members/{member_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "member_id": {"type": "string"},
+                    "display_name": {"type": "string"},
+                    "is_active": {
+                        "type": "boolean",
+                        "description": "Optional; omit = keep/default",
+                    },
+                },
+                "required": ["household_id", "member_id", "display_name"],
+            },
+        ),
+        types.Tool(
+            name="list_bank_accounts",
+            description=(
+                "Список банковских счетов домохозяйства (FIN-240): "
+                "GET /api/v1/households/{id}/bank-accounts."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                },
+                "required": ["household_id"],
+            },
+        ),
+        types.Tool(
+            name="upsert_bank_account",
+            description=(
+                "Upsert банковского счёта (FIN-240): "
+                "PUT /api/v1/households/{id}/bank-accounts/{account_id}. "
+                "Optional nullable: holder_member_id, valid_to — omit = keep, null = clear."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "account_id": {"type": "string"},
+                    "provider": {"type": "string"},
+                    "display_name": {"type": "string"},
+                    "valid_from": {"type": "string", "description": "YYYY-MM"},
+                    "holder_member_id": {
+                        "type": ["string", "null"],
+                        "description": "Optional; omit = keep, null = clear",
+                    },
+                    "statement_expected": {"type": "boolean"},
+                    "final_close_only": {"type": "boolean"},
+                    "valid_to": {
+                        "type": ["string", "null"],
+                        "description": "Optional YYYY-MM; omit = keep, null = clear",
+                    },
+                },
+                "required": [
+                    "household_id",
+                    "account_id",
+                    "provider",
+                    "display_name",
+                    "valid_from",
+                ],
+            },
+        ),
+        types.Tool(
             name="household_advances",
             description=(
                 "Журнал авансов на базовые потребности (FIN-115): register, list, void, "
@@ -1546,8 +1803,8 @@ async def list_tools() -> list[types.Tool]:
             name="query_transactions",
             description=(
                 "Выборка транзакций (GET /api/v1/transactions) с фильтрами учётного периода, "
-                "категории и group-by month. Неагрегированные rows включают id и transaction_type "
-                "(для put_transaction_category)."
+                "категории и group-by month. Неагрегированные rows: id, transaction_type, "
+                "expense_owner (FIN-211 / FIN-241)."
             ),
             inputSchema={
                 "type": "object",
@@ -1620,10 +1877,10 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="put_transaction_category",
             description=(
-                "Коррекция transaction_type вместе с совместимой непустой "
-                "transaction_category (PATCH …/category, FIN-202). "
-                "category_source не передавать (implicit manual). "
-                "Опционально reconciliation_note и allow_closed."
+                "PATCH …/category: type+category (FIN-211) и/или expense_owner "
+                "(FIN-241; owner-only OK). category_source не передавать. "
+                "Omit expense_owner = не менять; null/empty/whitespace = clear на API. "
+                "reconciliation_note — доп. поле; note-only запрещён."
             ),
             inputSchema={
                 "type": "object",
@@ -1636,26 +1893,33 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "transaction_type": {
                         "type": "string",
-                        "description": "C / P / S / I (strip; регистр нормализует API)",
+                        "description": (
+                            "C / P / S / I — только вместе с transaction_category"
+                        ),
                     },
                     "transaction_category": {
                         "type": "string",
-                        "description": "Непустой id категории, совместимый с типом",
+                        "description": "Непустой id категории — только вместе с type",
+                    },
+                    "expense_owner": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Member id (set) или null/empty (clear); omit = не менять; "
+                            "без MCP-нормализации"
+                        ),
                     },
                     "reconciliation_note": {
                         "type": ["string", "null"],
-                        "description": "Опционально; атомарно с type+category",
+                        "description": (
+                            "Опционально; с type+category или owner-only; note-only нет"
+                        ),
                     },
                     "allow_closed": {
                         "type": "boolean",
                         "description": "Bypass closed-period guard (default false)",
                     },
                 },
-                "required": [
-                    "transaction_id",
-                    "transaction_type",
-                    "transaction_category",
-                ],
+                "required": ["transaction_id"],
             },
         ),
         types.Tool(
@@ -1831,6 +2095,77 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="update_budget_item",
+            description=(
+                "Обновить master-поля статьи бюджета (PUT /budget/items/{id}): "
+                "planning_type, name, flow_type, operation_category_id, keywords, "
+                "item_status. При смене planning_type с одним ACT plan-item — "
+                "optional convert_plan_item (тот же plan_item_id). "
+                "Default recalculate=true только после успешного convert."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "article": {"type": "string", "description": "Подстрока имени статьи"},
+                    "budget_item_id": {"type": "string", "description": "UUID статьи"},
+                    "planning_type": {"type": "string", "description": "REG или IRR"},
+                    "name": {"type": "string", "description": "Новое имя статьи"},
+                    "flow_type": {"type": "string", "description": "EXP или INC"},
+                    "operation_category_id": {
+                        "type": "string",
+                        "description": "Код категории (нельзя очистить)",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Полная замена keywords (пустой список допустим)",
+                    },
+                    "item_status": {
+                        "type": "string",
+                        "description": "budget_item.status (ACT/INA)",
+                    },
+                    "convert_plan_item": {
+                        "type": "boolean",
+                        "description": (
+                            "При смене planning_type конвертировать ровно один "
+                            "ACT plan-item (default false)"
+                        ),
+                    },
+                    "amount": {
+                        "type": ["string", "number"],
+                        "description": "Сумма при convert (обяз. для REG)",
+                    },
+                    "start_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — start REG при convert→REG",
+                    },
+                    "end_period": {
+                        "type": "string",
+                        "description": "YYYY-MM — end REG при convert→REG",
+                    },
+                    "periodicity": {
+                        "type": "string",
+                        "description": "REG periodicity при convert→REG (default M)",
+                    },
+                    "forecast_method": {
+                        "type": "string",
+                        "description": "IRR: MAN или AVG при convert→IRR (default MAN)",
+                    },
+                    "currency": {"type": "string", "description": "Валюта при convert"},
+                    "recalculate": {
+                        "type": "boolean",
+                        "description": (
+                            "POST projections/recalculate; default true только "
+                            "после успешного convert"
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
             name="delete_transactions_by_filter",
             description=(
                 "Maintenance: подсчёт или удаление транзакций по фильтру (BLG-084). "
@@ -1883,6 +2218,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "household_base_share": _handle_household_base_share,
         "list_fx_rates": _handle_list_fx_rates,
         "upsert_fx_rate": _handle_upsert_fx_rate,
+        "list_households": _handle_list_households,
+        "upsert_household": _handle_upsert_household,
+        "list_household_members": _handle_list_household_members,
+        "upsert_household_member": _handle_upsert_household_member,
+        "list_bank_accounts": _handle_list_bank_accounts,
+        "upsert_bank_account": _handle_upsert_bank_account,
         "household_advances": _handle_household_advances,
         "personal_fund_carryover": _handle_personal_fund_carryover,
         "money_check_report": _handle_money_check_report,
@@ -1894,6 +2235,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "create_budget_item": _handle_create_budget_item,
         "create_plan_item": _handle_create_plan_item,
         "update_plan_item": _handle_update_plan_item,
+        "update_budget_item": _handle_update_budget_item,
         "query_transactions": _handle_query_transactions,
         "delete_transactions_by_filter": _handle_delete_transactions_by_filter,
     }

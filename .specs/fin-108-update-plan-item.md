@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-108](https://alexeielizarov.atlassian.net/browse/FIN-108) (Canonical: **MCP-22**); родитель [FIN-96](https://alexeielizarov.atlassian.net/browse/FIN-96) (EPIC-budgeting); **Relates** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103) (household ops — правка плана перед base share).
 
-**Домен:** plan-items и проекция — [budget-implementation-plan.md](../../../PycharmProjects/FinancePlanningProject/.specs/planning/budget-implementation-plan.md) (фазы 4–5); plan-fact читает **`amount`** из проекции, не напрямую из plan-items; ops-пример — [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md) (Командировки 300 € → 335 €).
+**Домен:** plan-items и проекция — [budget-implementation-plan.md](../../../PycharmProjects/FinancePlanningProject/.specs/planning/budget-implementation-plan.md) (фазы 4–5); plan-fact читает **`amount`** из проекции, не напрямую из plan-items; ops-пример — [ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md) / contour mapping (Командировки 300 € → 335 €).
 
 **Статус:** Утверждено (2026-06-28, rev.3).
 
@@ -242,7 +242,7 @@ cd mcp-servers/finance-assistant/scripts && python -m unittest test_update_plan_
 | Сценарий | Изменение | Обновление |
 | -------- | --------- | ---------- |
 | FinancePlanningProject E2E | Нет | Нет |
-| Household ops июль 2026 | MCP path для правки плана | Cross-link в 2026-07-household-ops |
+| Household ops июль 2026 | MCP path для правки плана | Cross-link в `working/2026-07/ops-checklist.md` |
 
 ## Follow-ups / Out of scope
 

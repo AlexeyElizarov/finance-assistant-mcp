@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-103](https://alexeielizarov.atlassian.net/browse/FIN-103); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); спринт wave-4; блокирует [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104) (money check — лимиты из base share).
 
-**Домен:** формула шагов 1–5 — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/household-budget-model.md); ops-процедура июля — [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md).
+**Домен:** формула шагов 1–5 — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md); ops-процедура июля — [working/2026-07/ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md).
 
 **Статус:** Утверждено (2026-06-28, rev.3).
 
@@ -39,7 +39,7 @@
 | Область | Текущее поведение | Проблема |
 | ------- | ----------------- | -------- |
 | MCP tools | `query_plan_fact` — одна статья за вызов | N вызовов на месяц |
-| Contour mapping | Только в markdown ops ([2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md)) | Нет машиночитаемого источника |
+| Contour mapping | Только в markdown ops ([working/2026-07/ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md)) | Нет машиночитаемого источника |
 | Backend [FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102) | Нет | — |
 | Июль 2026 deadline | Ручной расчёт до 3.07 | Риск ошибки и задержки |
 
@@ -286,7 +286,7 @@ base_share(each partner) = round(free_remainder / partner_count, 2)
 }
 ```
 
-Ожидаемые ключевые значения (план ACT на дату утверждения mapping; сверка с [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md)):
+Ожидаемые ключевые значения (план ACT на дату утверждения mapping; сверка с [working/2026-07/ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md)):
 
 | Поле | Ожидание |
 | ---- | -------- |
@@ -397,7 +397,7 @@ HTTP-вызовы: один `GET /budget/items` (кэш на время вызо
 
 **Ожидаемый результат:**
 
-* `free_remainder` и `partners[].base_share` совпадают с [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md) (±0,01 €).
+* `free_remainder` и `partners[].base_share` совпадают с [working/2026-07/ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md) (±0,01 €).
 * `excluded_income` содержит поддержку родителей.
 * `sanity_check.note` присутствует.
 
@@ -422,7 +422,7 @@ cd mcp-servers/finance-assistant/scripts && python -m unittest test_household_ba
 | Сценарий | Изменение | Обновление |
 | -------- | --------- | ---------- |
 | FinancePlanningProject E2E | Нет | Нет |
-| Ops июль 2026 | Фаза 1 через MCP | Ссылка на tool в [2026-07-household-ops.md](../../../assistant/35-finance-assistant/methodology/2026-07-household-ops.md) после Done |
+| Ops июль 2026 | Фаза 1 через MCP | Ссылка на tool в [working/2026-07/ops-checklist.md](../../../assistant/35-finance-assistant/working/2026-07/ops-checklist.md) после Done |
 | [FIN-102](https://alexeielizarov.atlassian.net/browse/FIN-102) | Fallback → API | После Done FIN-102 |
 
 ## Follow-ups / Out of scope
