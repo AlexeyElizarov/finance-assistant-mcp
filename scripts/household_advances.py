@@ -26,9 +26,9 @@ def default_mapping_path(profile: str) -> Path:
     Contour mapping path for partner validation.
 
     :param profile: Data profile name
-    :return: Path under ``ASSISTANT_ROOT/methodology/``
+    :return: Path under ``ASSISTANT_ROOT/ops/``
     """
-    return ASSISTANT_ROOT / "methodology" / f"household-contour-mapping.{profile}.json"
+    return ASSISTANT_ROOT / "ops" / f"household-contour-mapping.{profile}.json"
 
 
 def default_ledger_path(profile: str) -> Path:

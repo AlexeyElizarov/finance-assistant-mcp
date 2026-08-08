@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-106](https://alexeielizarov.atlassian.net/browse/FIN-106); родитель [FIN-3](https://alexeielizarov.atlassian.net/browse/FIN-3); спринт HO S1 prep 28–30 Jun; блокирует [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104) (money check).
 
-**Домен:** журнал закрытия и `methodology_status` — [period-close.md](../../../assistant/35-finance-assistant/methodology/period-close.md); двухфазное закрытие в API — [closed-period-mutation-guard.md](../../../PycharmProjects/FinancePlanningProject/.specs/web/apps/closed-period-mutation-guard.md) **D-14**.
+**Домен:** журнал закрытия и `methodology_status` — [period-close.md](../../../assistant/35-finance-assistant/methodology/accounting/period-close.md); двухфазное закрытие в API — [closed-period-mutation-guard.md](../../../PycharmProjects/FinancePlanningProject/.specs/web/apps/closed-period-mutation-guard.md) **D-14**.
 
 **Статус:** Утверждено (2026-06-28, rev.2).
 
@@ -81,7 +81,7 @@ Ops-процедуры двухфазного закрытия месяца ра
 
 `close_phase` — фаза **методологического** закрытия (preliminary / final), не фаза reconciliation workflow. Имя поля совпадает с backend; в MCP **не переименовывается**.
 
-Жизненный цикл методологии — [period-close.md](../../../assistant/35-finance-assistant/methodology/period-close.md); reconciliation lifecycle — [closed-period-mutation-guard.md](../../../PycharmProjects/FinancePlanningProject/.specs/web/apps/closed-period-mutation-guard.md).
+Жизненный цикл методологии — [period-close.md](../../../assistant/35-finance-assistant/methodology/accounting/period-close.md); reconciliation lifecycle — [closed-period-mutation-guard.md](../../../PycharmProjects/FinancePlanningProject/.specs/web/apps/closed-period-mutation-guard.md).
 
 ### MCP: `period_status_report`
 
@@ -284,7 +284,7 @@ cd mcp-servers/finance-assistant/scripts && python -m unittest test_period_statu
 | Сценарий | Изменение | Обновление |
 | -------- | --------- | ---------- |
 | FinancePlanningProject E2E | Нет | Нет |
-| Ops monthly close (methodology) | Чтение фазы через MCP | Обновить пример в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) после Done |
+| Ops monthly close (methodology) | Чтение фазы через MCP | Обновить пример в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) после Done |
 
 ## Follow-ups / Out of scope
 

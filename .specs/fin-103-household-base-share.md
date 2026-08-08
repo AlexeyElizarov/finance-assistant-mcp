@@ -17,7 +17,7 @@
 ### Входит в объём
 
 * Новый MCP tool **`household_base_share`** в `mcp-servers/finance-assistant/`.
-* Interim JSON **contour mapping** per profile: `35-finance-assistant/methodology/household-contour-mapping.{profile}.json` (первая версия — `prod`).
+* Interim JSON **contour mapping** per profile: `35-finance-assistant/ops/household-contour-mapping.{profile}.json` (первая версия — `prod`).
 * Загрузка **плановых** сумм статей через существующий `GET /api/v1/budget/plan-actual` (reuse `fetch_month_row` / `resolve_budget_item_id`).
 * Расчёт формулы модели; ответ с line items по каждому контуру.
 * Блок **`sanity_check`**: сумма legacy IRR-строк личных подлимитов vs `Σ base_share` партнёров (информационно).
@@ -77,7 +77,7 @@ base_share(each partner) = round(free_remainder / partner_count, 2)
 Путь по умолчанию:
 
 ```
-{FINANCE_ASSISTANT_ROOT}/methodology/household-contour-mapping.{profile}.json
+{FINANCE_ASSISTANT_ROOT}/ops/household-contour-mapping.{profile}.json
 ```
 
 `FINANCE_ASSISTANT_ROOT` — как в `monthly_close_lib.ASSISTANT_ROOT` (default `C:\Users\haake\assistant\35-finance-assistant`).

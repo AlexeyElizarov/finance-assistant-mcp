@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-217](https://alexeielizarov.atlassian.net/browse/FIN-217); родитель [FIN-98](https://alexeielizarov.atlassian.net/browse/FIN-98); backend [FIN-214](https://alexeielizarov.atlassian.net/browse/FIN-214) Done — [fin-214-create-category-api.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-214-create-category-api.md).
 
-**Домен:** [classification.md](../../../PycharmProjects/FinancePlanningProject/.specs/transactions/classification.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md).
+**Домен:** [classification.md](../../../PycharmProjects/FinancePlanningProject/.specs/transactions/classification.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md).
 
 **Статус:** Утверждено (2026-07-19, rev.4)
 

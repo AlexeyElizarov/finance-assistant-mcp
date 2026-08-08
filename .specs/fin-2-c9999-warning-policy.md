@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-2](https://alexeielizarov.atlassian.net/browse/FIN-2); родитель [FIN-1](https://alexeielizarov.atlassian.net/browse/FIN-1); **Blocks** [FIN-7](https://alexeielizarov.atlassian.net/browse/FIN-7) (range import/close).
 
-**Домен:** предложение по разнесению — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md); close — [close-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/close-policy.md); двухфазное закрытие — [period-close.md](../../../assistant/35-finance-assistant/methodology/period-close.md).
+**Домен:** предложение по разнесению — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md); close — [close-policy.md](../../../assistant/35-finance-assistant/ops/close-policy.md); двухфазное закрытие — [period-close.md](../../../assistant/35-finance-assistant/methodology/accounting/period-close.md).
 
 **Статус:** Утверждено (2026-07-08)
 
@@ -10,7 +10,7 @@
 
 Backend readiness трактует C9999 как **warn** (non-blocking): `classification_c9999` не мешает `ready: true` при прочих blocking checks pass. MCP `verify_period` и `process_month` сегодня **смешивают** C9999 с blocking issues → `verify.ok: false` и `process_month` с `ok: false` / exit 1 даже без `close: true`. При `close: true` guard отклоняет close при `expense_c9999_count > 0` **без учёта** `close_phase`, что ломает штатный **preliminary close** с осознанно оставленными misc-расходами (prod 2026-06: Solmecke, Ministerium, BRITISHWAY; workaround — пустой `apply_keywords`).
 
-**Критерий приёмки:** C9999 — предупреждение в prepare/import/batch; **final** close допускается только при `verify.readiness.ready == true` (backend) и `expense_c9999_count == 0` после import/derive и любых keywords; **preliminary** close допускается при `ready: true` и явном `c9999_acknowledged: true` после review по [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md).
+**Критерий приёмки:** C9999 — предупреждение в prepare/import/batch; **final** close допускается только при `verify.readiness.ready == true` (backend) и `expense_c9999_count == 0` после import/derive и любых keywords; **preliminary** close допускается при `ready: true` и явном `c9999_acknowledged: true` после review по [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md).
 
 ## Объём и границы
 
@@ -22,7 +22,7 @@ Backend readiness трактует C9999 как **warn** (non-blocking): `classi
 * Семантика **effective** `apply_keywords` (непустой файл с правилами).
 * Guard close: `close_phase` × C9999 × effective keywords × `c9999_acknowledged`.
 * Unit-тесты preliminary vs final vs non-close.
-* Обновление `mcp-gaps.md`, [close-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/close-policy.md) (секция C9999 / preliminary).
+* Обновление `mcp-gaps.md`, [close-policy.md](../../../assistant/35-finance-assistant/ops/close-policy.md) (секция C9999 / preliminary).
 * Выравнивание CLI `scripts/fix-month.py` и `scripts/monthly-close.py` с той же политикой (тот же repo, те же helpers).
 
 ### Не входит в объём
@@ -30,7 +30,7 @@ Backend readiness трактует C9999 как **warn** (non-blocking): `classi
 * Backend изменения readiness / close API ([FIN-24](https://alexeielizarov.atlassian.net/browse/FIN-24) и др.).
 * `list_c9999` — [FIN-17](https://alexeielizarov.atlassian.net/browse/FIN-17) (уже реализован).
 * Range tool `process_month` по диапазону — [FIN-7](https://alexeielizarov.atlassian.net/browse/FIN-7) (заблокирован этой задачей).
-* Автоматическая проверка «оператор видел таблицу» — только явный флаг ack; enforcement чата остаётся в [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md).
+* Автоматическая проверка «оператор видел таблицу» — только явный флаг ack; enforcement чата остаётся в [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md).
 * `c9999_acknowledged` как bypass для **final** close (v1 и v2 — только preliminary).
 
 ## Факт реализации (до)
@@ -188,7 +188,7 @@ Final close: `apply_keywords` не снимает guard сам по себе —
 - [x] CLI `fix-month.py` / `monthly-close.py` выровнены
 - [x] Unit-тесты T1–T13 (`tests/test_fin2_c9999_warning_policy.py`; mock, без cand/prod)
 - [x] `mcp-gaps.md` и `close-policy.md` обновлены
-- [x] Норма проверки: smoke на `cand`; `prod` не трогать ([index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md); с 2026-07-09; ранее `test`)
+- [x] Норма проверки: smoke на `cand`; `prod` не трогать ([index.md](../../../assistant/35-finance-assistant/ops/index.md); с 2026-07-09; ранее `test`)
 - [ ] FIN-7 разблокирован для range work после merge
 
 ## Проверка реализации

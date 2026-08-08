@@ -2,15 +2,15 @@
 
 **Связь:** [FIN-17](https://alexeielizarov.atlassian.net/browse/FIN-17); родитель [FIN-4](https://alexeielizarov.atlassian.net/browse/FIN-4); **Relates** [FIN-24](https://alexeielizarov.atlassian.net/browse/FIN-24) (backend suggestions), [FIN-27](https://alexeielizarov.atlassian.net/browse/FIN-27) (period/category в `query_transactions`).
 
-**Домен:** шаг предложения по разнесению — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md); close — [close-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/close-policy.md).
+**Домен:** шаг предложения по разнесению — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md); close — [close-policy.md](../../../assistant/35-finance-assistant/ops/close-policy.md).
 
 **Статус:** Утверждено (2026-07-02, rev.4).
 
 ## Назначение
 
-При закрытии месяца агент обязан показать оператору таблицу всех расходов в **C9999** до вызова `apply_keywords` ([c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md)). Сегодня MCP `verify_month` и `process_month` отдают только счётчик `expense_c9999_count` в `classification_summary`; строки транзакций недоступны без обхода mcp-only (CLI `monthly-close.py` / `fix-month.py`).
+При закрытии месяца агент обязан показать оператору таблицу всех расходов в **C9999** до вызова `apply_keywords` ([c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md)). Сегодня MCP `verify_month` и `process_month` отдают только счётчик `expense_c9999_count` в `classification_summary`; строки транзакций недоступны без обхода mcp-only (CLI `monthly-close.py` / `fix-month.py`).
 
-**Критерий приёмки:** один вызов `list_c9999` для `YYYY-MM` возвращает все expense C9999 строки месяца в форме, пригодной для чат-таблицы предложения; агент не использует ad-hoc скрипты и не нарушает [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md).
+**Критерий приёмки:** один вызов `list_c9999` для `YYYY-MM` возвращает все expense C9999 строки месяца в форме, пригодной для чат-таблицы предложения; агент не использует ad-hoc скрипты и не нарушает [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md).
 
 **Сверка с verify:** `list_c9999` возвращает только строки и `row_count`. Сопоставление с `expense_c9999_count` из `verify_month` / `process_month` — обязанность вызывающего сценария, не этого tool.
 
@@ -22,7 +22,7 @@
 * Reuse / расширение `c9999_rows()` в `scripts/monthly_close_lib.py`: нормализация, сортировка, агрегаты.
 * Handler в `server.py`, schema tool, unit-тесты (mock `ApiClient`).
 * Обновление `mcp-gaps.md` (перенос из «открытых пробелов» в «доступные tools»); снятие label `mcp-gap` в Jira при Done.
-* Ссылка в [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md) на `list_c9999` (после реализации).
+* Ссылка в [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md) на `list_c9999` (после реализации).
 
 ### Не входит в объём
 

@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-27](https://alexeielizarov.atlassian.net/browse/FIN-27); родитель [FIN-3](https://alexeielizarov.atlassian.net/browse/FIN-3); **Relates** [FIN-17](https://alexeielizarov.atlassian.net/browse/FIN-17) (dedicated `list_c9999`), [FIN-26](https://alexeielizarov.atlassian.net/browse/FIN-26), [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101), [FIN-107](https://alexeielizarov.atlassian.net/browse/FIN-107) (lookup перед overrides).
 
-**Домен:** ad-hoc выборки и расследования C9999/OTTO — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) § «Ad-hoc выборки»; mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md).
+**Домен:** ad-hoc выборки и расследования C9999/OTTO — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) § «Ad-hoc выборки»; mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md).
 
 **Статус:** Утверждено (2026-07-09, rev.3)
 
@@ -20,7 +20,7 @@
 * Handler `_handle_query_transactions` в `server.py` + schema tool (описание новых полей).
 * CLI `query-transactions.py`: флаги `--period` / `--accounting-period` (parity с MCP).
 * Unit-тесты (mock `ApiClient`): period-only, period+category, alias `transaction_category`, invalid period, backward compat `category`.
-* Обновление примера в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) § «Ad-hoc выборки».
+* Обновление примера в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) § «Ad-hoc выборки».
 * Снятие label `mcp-gap` с FIN-27 при Done.
 
 ### Не входит в объём
@@ -282,5 +282,5 @@ query_transactions({
 
 | Документ | Действие после Done |
 | -------- | ------------------- |
-| [index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) | пример с `period` + `category` |
+| [index.md](../../../assistant/35-finance-assistant/ops/index.md) | пример с `period` + `category` |
 | [mcp-gaps.md](../mcp-gaps.md) | уточнить описание `query_transactions` (фильтры period/category) |

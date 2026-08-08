@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-241](https://alexeielizarov.atlassian.net/browse/FIN-241); родитель [FIN-26](https://alexeielizarov.atlassian.net/browse/FIN-26); **Blocked by** [FIN-232](https://alexeielizarov.atlassian.net/browse/FIN-232) (backend `expense_owner`); **Relates** [FIN-211](https://alexeielizarov.atlassian.net/browse/FIN-211) (`put_transaction_category`), [FOPS-9](https://alexeielizarov.atlassian.net/browse/FOPS-9).
 
-**Домен:** [operation-owner.md](../../../assistant/35-finance-assistant/methodology/accounting/operation-owner.md); backend — [fin-232-transaction-expense-owner.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-232-transaction-expense-owner.md) (D-03…D-07, D-13 / F-01); базовый MCP tool — [fin-211-put-transaction-category.md](fin-211-put-transaction-category.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md).
+**Домен:** [operation-owner.md](../../../assistant/35-finance-assistant/methodology/accounting/operation-owner.md); backend — [fin-232-transaction-expense-owner.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-232-transaction-expense-owner.md) (D-03…D-07, D-13 / F-01); базовый MCP tool — [fin-211-put-transaction-category.md](fin-211-put-transaction-category.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md).
 
 **Статус:** Утверждено (2026-07-26, rev.3)
 

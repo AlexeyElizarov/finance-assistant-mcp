@@ -88,7 +88,7 @@ class MoneyCheckReportTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
-        self.mapping_path = self.root / "methodology" / "household-contour-mapping.test.json"
+        self.mapping_path = self.root / "ops" / "household-contour-mapping.test.json"
         self.mapping_path.parent.mkdir(parents=True)
         self.mapping_path.write_text(json.dumps(MAPPING), encoding="utf-8")
         self.advances_path = self.root / "working" / "household" / "household-advances.test.json"

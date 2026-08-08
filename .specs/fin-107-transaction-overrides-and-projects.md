@@ -8,7 +8,7 @@
 
 ## Назначение
 
-Переклассификация операций в plan-fact (например, отель Booking.com, ошибочно попавший в «Командировки», а не в личный/проектный расход) требует `PUT /api/v1/budget/reconciliation` с `transaction_overrides` и часто правки `projects.json` через `POST`/`PUT /api/v1/projects`. Сегодня агенты обходят политику [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md) ad-hoc Python-скриптами к `monthly_close_lib`.
+Переклассификация операций в plan-fact (например, отель Booking.com, ошибочно попавший в «Командировки», а не в личный/проектный расход) требует `PUT /api/v1/budget/reconciliation` с `transaction_overrides` и часто правки `projects.json` через `POST`/`PUT /api/v1/projects`. Сегодня агенты обходят политику [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md) ad-hoc Python-скриптами к `monthly_close_lib`.
 
 **Пример (2026-05):** предоплаты Canal Pride Amsterdam (353,06 € отель + 159,96 € DB) оказались в профессиональных/контурных строках до ручного override после `reopen_periods`.
 
@@ -21,7 +21,7 @@
 * MCP tool **`put_transaction_overrides`**: запись map `transaction_key` → `budget_item_id` за месяц через `PUT /api/v1/budget/reconciliation`.
 * MCP tool **`upsert_expense_project`**: create/replace одного проекта через `POST` / `PUT /api/v1/projects`.
 * Логика в `monthly_close_lib.py` + handlers в `server.py` (уже есть черновая реализация — см. §«Факт до»).
-* Схемы tools в MCP server; строки в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) после Done.
+* Схемы tools в MCP server; строки в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) после Done.
 * Unit-тесты (mock `ApiClient`): merge, closed period, upsert create/update.
 
 ### Не входит в объём

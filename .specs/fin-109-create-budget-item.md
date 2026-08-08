@@ -21,7 +21,7 @@
 * Semantics частичного успеха (POST items OK, POST plan-items fail) — см. **D-04**.
 * Логика в `monthly_close_lib.py` + handler в `server.py`.
 * Unit-тесты (mock `ApiClient`): happy path и validation errors.
-* Строка в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) после Done.
+* Строка в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) после Done.
 
 ### Не входит в объём
 

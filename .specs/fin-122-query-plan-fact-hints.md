@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-122](https://alexeielizarov.atlassian.net/browse/FIN-122); родитель [FIN-26](https://alexeielizarov.atlassian.net/browse/FIN-26); **Relates** [FIN-29](https://alexeielizarov.atlassian.net/browse/FIN-29) (combined plan-fact query), [FIN-120](https://alexeielizarov.atlassian.net/browse/FIN-120) (паттерн enriched tool error).
 
-**Домен:** ops plan-fact — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md); prod-триггер — июль 2026 (`P001` вместо `P0001` Заработная плата).
+**Домен:** ops plan-fact — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md); prod-триггер — июль 2026 (`P001` вместо `P0001` Заработная плата).
 
 **Статус:** Утверждено (2026-07-12, rev.3)
 

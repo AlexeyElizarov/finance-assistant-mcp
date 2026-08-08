@@ -8,7 +8,7 @@
 
 ## Назначение
 
-Изменение плановой суммы статьи (например, «Командировки (отель и проезд)» с 300 на 335 €/мес) требует `PUT /api/v1/budget/plan-items/{plan_item_id}` с **полным** телом записи и последующего пересчёта проекции. Сегодня агенты обходят [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md) прямым REST или ad-hoc скриптами.
+Изменение плановой суммы статьи (например, «Командировки (отель и проезд)» с 300 на 335 €/мес) требует `PUT /api/v1/budget/plan-items/{plan_item_id}` с **полным** телом записи и последующего пересчёта проекции. Сегодня агенты обходят [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md) прямым REST или ad-hoc скриптами.
 
 **Критерий приёмки:** ops меняет сумму plan-item только через MCP `finance-assistant`; после записи plan-fact / `query_plan_fact` отражает новый план (при default `recalculate=true`).
 
@@ -21,7 +21,7 @@
 * После успешного PUT — опциональный `POST /api/v1/budget/projections/recalculate` для ACT-версии (default `true`).
 * Логика в `monthly_close_lib.py` + handler в `server.py`.
 * Unit-тесты (mock `ApiClient`): resolve, PUT, recalculate, guards.
-* Строка в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) после Done.
+* Строка в `mcp-gaps.md`; ссылка в [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md) после Done.
 
 ### Не входит в объём
 

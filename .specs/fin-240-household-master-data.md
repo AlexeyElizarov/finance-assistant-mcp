@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-240](https://alexeielizarov.atlassian.net/browse/FIN-240); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Blocks** [FOPS-8](https://alexeielizarov.atlassian.net/browse/FOPS-8); **Relates** [FIN-36](https://alexeielizarov.atlassian.net/browse/FIN-36), [FIN-231](https://alexeielizarov.atlassian.net/browse/FIN-231).
 
-**Домен:** backend — [fin-36-master-data-contour.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-36-master-data-contour.md); coverage — [fin-231-import-coverage-from-bank-accounts.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-231-import-coverage-from-bank-accounts.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md).
+**Домен:** backend — [fin-36-master-data-contour.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-36-master-data-contour.md); coverage — [fin-231-import-coverage-from-bank-accounts.md](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-231-import-coverage-from-bank-accounts.md); mcp-only — [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md).
 
 **Статус:** Утверждено (2026-07-26, rev.2)
 

@@ -35,6 +35,7 @@ class Row:
     id: str = ""
     transaction_type: str = ""
     expense_owner: str | None = None
+    fund_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,12 @@ def row_from_api(raw: dict) -> Row:
         expense_owner = None
     else:
         expense_owner = str(raw_owner)
+    raw_fund = raw.get("fund_id")
+    fund_id: str | None
+    if raw_fund is None:
+        fund_id = None
+    else:
+        fund_id = str(raw_fund)
     return Row(
         date_display=raw["date_display"],
         amount=parse_amount(raw["amount"]),
@@ -228,6 +235,7 @@ def row_from_api(raw: dict) -> Row:
         id=str(raw.get("id") or ""),
         transaction_type=str(raw.get("transaction_type") or ""),
         expense_owner=expense_owner,
+        fund_id=fund_id,
     )
 
 
@@ -507,6 +515,7 @@ def main() -> int:
                         "category": r.category,
                         "transaction_type": r.transaction_type,
                         "expense_owner": r.expense_owner,
+                        "fund_id": r.fund_id,
                         "provider": r.provider,
                         "description": r.description,
                     }

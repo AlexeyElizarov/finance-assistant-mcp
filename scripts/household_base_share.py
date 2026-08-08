@@ -141,9 +141,9 @@ def default_mapping_path(profile: str) -> Path:
     Default contour mapping file for a data profile.
 
     :param profile: ``test`` / ``cand`` / ``prod``
-    :return: Path under ``FINANCE_ASSISTANT_ROOT/methodology/``
+    :return: Path under ``FINANCE_ASSISTANT_ROOT/ops/``
     """
-    return ASSISTANT_ROOT / "methodology" / f"household-contour-mapping.{profile}.json"
+    return ASSISTANT_ROOT / "ops" / f"household-contour-mapping.{profile}.json"
 
 
 def normalize_period(period: str) -> str:

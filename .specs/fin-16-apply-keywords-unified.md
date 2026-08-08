@@ -2,13 +2,13 @@
 
 **Связь:** [FIN-16](https://alexeielizarov.atlassian.net/browse/FIN-16); родитель [FIN-4](https://alexeielizarov.atlassian.net/browse/FIN-4); **Blocks** [FIN-14](https://alexeielizarov.atlassian.net/browse/FIN-14) (backend unified endpoint); **Relates** [FIN-34](https://alexeielizarov.atlassian.net/browse/FIN-34), [FIN-62](https://alexeielizarov.atlassian.net/browse/FIN-62).
 
-**Домен:** C9999 proposal → keywords → derive — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md); plan-fact resolver / `ambiguous_fallback` — [FIN-34](https://alexeielizarov.atlassian.net/browse/FIN-34); runbook §3.4 — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md).
+**Домен:** C9999 proposal → keywords → derive — [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md); plan-fact resolver / `ambiguous_fallback` — [FIN-34](https://alexeielizarov.atlassian.net/browse/FIN-34); runbook §3.4 — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md).
 
 **Статус:** Утверждено (2026-07-08, rev.5)
 
 ## Назначение
 
-При закрытии месяца ops добавляет keywords в **категории операций**, **статьи бюджета** и **проекты**. Сегодня `apply_keywords_file()` обновляет **только категории** (add); статьи и проекты — прямой REST, нарушение [mcp-only.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/mcp-only.md); standalone MCP tool отсутствует.
+При закрытии месяца ops добавляет keywords в **категории операций**, **статьи бюджета** и **проекты**. Сегодня `apply_keywords_file()` обновляет **только категории** (add); статьи и проекты — прямой REST, нарушение [mcp-only.md](../../../assistant/35-finance-assistant/ops/mcp-only.md); standalone MCP tool отсутствует.
 
 **Prod 2026-06 (триггеры):**
 
@@ -25,7 +25,7 @@
 * Standalone MCP tool **`apply_keywords`** в `server.py` (сейчас в `mcp-gaps.md указан, но **не зарегистрирован**).
 * Обновление **`keywords_payload_effective()`** / `keywords_file_effective()` под unified format (см. §`effective`, `changes` и derive).
 * Параметр `apply_keywords` в `process_month` — тот же parser (без дублирования логики).
-* Документированный JSON-формат + пример в `methodology/monthly-close-api/examples/`.
+* Документированный JSON-формат + пример в `ops/examples/`.
 * Unit-тесты (mock `ApiClient`): categories add; budget_items add+remove; projects add; legacy flat file; effective guard; standalone derive; partial success; idempotency; empty payload.
 * `mcp-gaps.md` — уточнение описания tool; снятие `mcp-gap` при Done.
 
@@ -59,7 +59,7 @@
 
 Плоский объект `{ "C0001": ["kw1", …], … }` — все ключи верхнего уровня = id категорий (`C…` / `P…` / `S…` / `I…`). Семантика: **только add** keywords к категориям (как сегодня).
 
-Пример: [2026-05-keywords.json](../../../assistant/35-finance-assistant/methodology/monthly-close-api/examples/2026-05-keywords.json).
+Пример: [2026-05-keywords.json](../../../assistant/35-finance-assistant/ops/examples/2026-05-keywords.json).
 
 #### 2. Unified (рекомендуемый)
 
@@ -343,7 +343,7 @@ process_month({
 
 ## Smoke (`cand`, после реализации)
 
-Норма: [index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) § «Проверка реализации» — **не `prod`**.
+Норма: [index.md](../../../assistant/35-finance-assistant/ops/index.md) § «Проверка реализации» — **не `prod`**.
 
 1. На **`profile: cand`**: keywords на «Прочие доходы» (P9999 pattern) → derive → plan-fact: `ambiguous_fallback` снят для Zinszahlung-операций.
 2. На **`profile: cand`**: remove `DB Vertrieb` с BahnCard → derive → plan-fact conflict снят.
@@ -362,6 +362,6 @@ process_month({
 
 | Документ | Действие после Done |
 | -------- | ------------------- |
-| [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/c9999-proposal-policy.md) | ссылка на standalone `apply_keywords` + unified example |
-| [index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md) | пример unified JSON |
-| [examples/](../../../assistant/35-finance-assistant/methodology/monthly-close-api/examples/) | `2026-06-keywords-unified.json` (illustrative) |
+| [c9999-proposal-policy.md](../../../assistant/35-finance-assistant/ops/c9999-proposal-policy.md) | ссылка на standalone `apply_keywords` + unified example |
+| [index.md](../../../assistant/35-finance-assistant/ops/index.md) | пример unified JSON |
+| [examples/](../../../assistant/35-finance-assistant/ops/examples/) | `2026-06-keywords-unified.json` (illustrative) |

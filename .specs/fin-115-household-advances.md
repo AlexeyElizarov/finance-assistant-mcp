@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-115](https://alexeielizarov.atlassian.net/browse/FIN-115); родитель [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101); **Blocks** [FIN-104](https://alexeielizarov.atlassian.net/browse/FIN-104), [FIN-105](https://alexeielizarov.atlassian.net/browse/FIN-105); **Relates** [FIN-116](https://alexeielizarov.atlassian.net/browse/FIN-116) (отдельный домен — займы третьим лицам).
 
-**Домен:** аванс на базовые потребности — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (§ «Аванс на базовые потребности»); partner ids — [household-contour-mapping.{profile}.json](../../../assistant/35-finance-assistant/methodology/household-contour-mapping.prod.json).
+**Домен:** аванс на базовые потребности — [household-budget-model.md](../../../assistant/35-finance-assistant/methodology/budgeting/household-budget-model.md) (§ «Аванс на базовые потребности»); partner ids — [household-contour-mapping.{profile}.json](../../../assistant/35-finance-assistant/ops/household-contour-mapping.prod.json).
 
 **Статус:** Утверждено (2026-07-10, rev.2)
 

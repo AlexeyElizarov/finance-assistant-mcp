@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-31](https://alexeielizarov.atlassian.net/browse/FIN-31); родитель [FIN-26](https://alexeielizarov.atlassian.net/browse/FIN-26); **Relates** [FIN-101](https://alexeielizarov.atlassian.net/browse/FIN-101).
 
-**Домен:** runbook — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md); skill `finance-monthly-close`; close — [close-policy.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/close-policy.md).
+**Домен:** runbook — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md); skill `finance-monthly-close`; close — [close-policy.md](../../../assistant/35-finance-assistant/ops/close-policy.md).
 
 **Статус:** Утверждено (2026-07-02, rev.4)
 
@@ -34,7 +34,7 @@ Legacy CLI `monthly-close.py` **всегда** генерирует PDF посл
 * Значение **`monthly_close_prepare`**: defaults рекомендуемого prepare-workflow (таблица ниже).
 * Helper `resolve_process_month_arguments(arguments) -> dict | None` — preset expand + explicit merge; **`None`** если preset отсутствует (**D-11**); unit-тесты.
 * Обновление schema/description `process_month` в `server.py`.
-* Runbook [index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md): канонический вызов с preset; исправление примера «Подготовка месяца».
+* Runbook [index.md](../../../assistant/35-finance-assistant/ops/index.md): канонический вызов с preset; исправление примера «Подготовка месяца».
 * Обновление `mcp-gaps.md`; снятие `mcp-gap` при Done.
 
 ### Не входит в объём

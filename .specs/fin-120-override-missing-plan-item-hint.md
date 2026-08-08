@@ -2,7 +2,7 @@
 
 **Связь:** [FIN-120](https://alexeielizarov.atlassian.net/browse/FIN-120); родитель [FIN-92](https://alexeielizarov.atlassian.net/browse/FIN-92); **Relates** [FIN-107](https://alexeielizarov.atlassian.net/browse/FIN-107) (базовый tool), [FIN-119](https://alexeielizarov.atlassian.net/browse/FIN-119) (`create_plan_item` для IRR).
 
-**Домен:** reconciliation overrides — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/methodology/monthly-close-api/index.md); prod-триггер — июнь 2026 «Прочие доходы» (IRR, `9c5a12d0-…`).
+**Домен:** reconciliation overrides — [monthly-close-api/index.md](../../../assistant/35-finance-assistant/ops/index.md); prod-триггер — июнь 2026 «Прочие доходы» (IRR, `9c5a12d0-…`).
 
 **Статус:** Утверждено (2026-07-12, rev.3)
 

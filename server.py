@@ -94,6 +94,7 @@ _delete_by_filter = _load_script_module("delete_by_filter", "delete-by-filter.py
 _household_base_share = _load_script_module("household_base_share", "household_base_share.py")
 _fx_rates = _load_script_module("fx_rates", "fx_rates.py")
 _households = _load_script_module("households", "households.py")
+_household_funds = _load_script_module("household_funds", "household_funds.py")
 _household_advances = _load_script_module("household_advances", "household_advances.py")
 _household_receivables = _load_script_module("household_receivables", "household_receivables.py")
 _personal_fund_carryover = _load_script_module("personal_fund_carryover", "personal_fund_carryover.py")
@@ -101,6 +102,10 @@ _money_check_report = _load_script_module("money_check_report", "money_check_rep
 _put_transaction_category = _load_script_module(
     "put_transaction_category",
     "put_transaction_category.py",
+)
+_put_transaction = _load_script_module(
+    "put_transaction",
+    "put_transaction.py",
 )
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
@@ -122,11 +127,16 @@ list_household_members = _households.list_household_members
 upsert_household_member = _households.upsert_household_member
 list_bank_accounts = _households.list_bank_accounts
 upsert_bank_account = _households.upsert_bank_account
+list_household_funds = _household_funds.list_household_funds
+get_household_fund = _household_funds.get_household_fund
+create_household_fund = _household_funds.create_household_fund
+patch_household_fund = _household_funds.patch_household_fund
 run_household_advances = _household_advances.run_household_advances
 run_household_receivables = _household_receivables.run_household_receivables
 compute_personal_fund_carryover = _personal_fund_carryover.compute_personal_fund_carryover
 compute_money_check_report = _money_check_report.compute_money_check_report
 put_transaction_category = _put_transaction_category.put_transaction_category
+put_transaction = _put_transaction.put_transaction
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
@@ -686,6 +696,54 @@ def _handle_upsert_bank_account(arguments: dict[str, Any]) -> list[types.TextCon
     return _json_text(payload)
 
 
+def _handle_list_household_funds(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_household_funds(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_get_household_fund(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_household_fund(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_create_household_fund(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_household_fund(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_household_fund(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_household_fund(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
 def _handle_household_advances(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     action = str(arguments["action"])
@@ -785,6 +843,18 @@ def _handle_put_transaction_category(arguments: dict[str, Any]) -> list[types.Te
     if "expense_owner" in arguments:
         kwargs["expense_owner"] = arguments.get("expense_owner")
     payload = put_transaction_category(api, profile=profile, base=base, **kwargs)
+    return _json_text(payload)
+
+
+def _handle_put_transaction(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = put_transaction(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
     return _json_text(payload)
 
 
@@ -1072,6 +1142,7 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
                     "category": r.category,
                     "transaction_type": r.transaction_type,
                     "expense_owner": r.expense_owner,
+                    "fund_id": r.fund_id,
                     "provider": r.provider,
                     "description": r.description,
                 }
@@ -1624,6 +1695,111 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="list_household_funds",
+            description=(
+                "Список фондов домохозяйства (FIN-256): "
+                "GET /api/v1/households/{household_id}/funds. "
+                "Optional applicable_on (YYYY-MM-DD)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "applicable_on": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD applicability filter",
+                    },
+                },
+                "required": ["household_id"],
+            },
+        ),
+        types.Tool(
+            name="get_household_fund",
+            description=(
+                "Чтение фонда (FIN-256): "
+                "GET /api/v1/households/{household_id}/funds/{fund_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "fund_id": {"type": "string"},
+                },
+                "required": ["household_id", "fund_id"],
+            },
+        ),
+        types.Tool(
+            name="create_household_fund",
+            description=(
+                "Создание фонда (FIN-256): "
+                "PUT /api/v1/households/{household_id}/funds/{fund_id} (create-only, HTTP 201). "
+                "Optional nullable: member_id, valid_to — omit = household/open, null = same."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "fund_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "allocation_rule": {
+                        "type": "string",
+                        "description": "before_split | equal_share",
+                    },
+                    "valid_from": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD",
+                    },
+                    "member_id": {
+                        "type": ["string", "null"],
+                        "description": "Optional; omit/null = household subject",
+                    },
+                    "valid_to": {
+                        "type": ["string", "null"],
+                        "description": "Optional YYYY-MM-DD; omit/null = open interval",
+                    },
+                },
+                "required": [
+                    "household_id",
+                    "fund_id",
+                    "name",
+                    "allocation_rule",
+                    "valid_from",
+                ],
+            },
+        ),
+        types.Tool(
+            name="patch_household_fund",
+            description=(
+                "Частичное обновление фонда (FIN-256): "
+                "PATCH /api/v1/households/{household_id}/funds/{fund_id}. "
+                "At least one of name or valid_to; valid_to null = reopen attempt (API may reject)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "fund_id": {"type": "string"},
+                    "name": {
+                        "type": "string",
+                        "description": "Optional new display name",
+                    },
+                    "valid_to": {
+                        "type": ["string", "null"],
+                        "description": "Optional YYYY-MM-DD; null = reopen attempt",
+                    },
+                },
+                "required": ["household_id", "fund_id"],
+            },
+        ),
+        types.Tool(
             name="household_advances",
             description=(
                 "Журнал авансов на базовые потребности (FIN-115): register, list, void, "
@@ -1880,7 +2056,8 @@ async def list_tools() -> list[types.Tool]:
                 "PATCH …/category: type+category (FIN-211) и/или expense_owner "
                 "(FIN-241; owner-only OK). category_source не передавать. "
                 "Omit expense_owner = не менять; null/empty/whitespace = clear на API. "
-                "reconciliation_note — доп. поле; note-only запрещён."
+                "reconciliation_note — доп. поле; note-only запрещён. "
+                "Для полного merge-patch (в т.ч. fund_id/project) — put_transaction (FIN-260)."
             ),
             inputSchema={
                 "type": "object",
@@ -1913,6 +2090,57 @@ async def list_tools() -> list[types.Tool]:
                         "description": (
                             "Опционально; с type+category или owner-only; note-only нет"
                         ),
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": ["transaction_id"],
+            },
+        ),
+        types.Tool(
+            name="put_transaction",
+            description=(
+                "Canonical merge-patch операции (FIN-260 / FIN-258): "
+                "PATCH /api/v1/transactions/{id}. "
+                "Поля тела (omit≠null): transaction_category, category_source, "
+                "reconciliation_note, transaction_type, expense_owner, project, "
+                "project_source, fund_id. Хотя бы одно поле тела обязательно."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "transaction_id": {
+                        "type": "string",
+                        "description": "UUID операции",
+                    },
+                    "transaction_category": {
+                        "type": ["string", "null"],
+                    },
+                    "category_source": {
+                        "type": ["string", "null"],
+                    },
+                    "reconciliation_note": {
+                        "type": ["string", "null"],
+                    },
+                    "transaction_type": {
+                        "type": ["string", "null"],
+                    },
+                    "expense_owner": {
+                        "type": ["string", "null"],
+                    },
+                    "project": {
+                        "type": ["string", "null"],
+                    },
+                    "project_source": {
+                        "type": ["string", "null"],
+                    },
+                    "fund_id": {
+                        "type": ["string", "null"],
+                        "description": "Assign fund or null/empty to clear (API)",
                     },
                     "allow_closed": {
                         "type": "boolean",
@@ -2224,12 +2452,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "upsert_household_member": _handle_upsert_household_member,
         "list_bank_accounts": _handle_list_bank_accounts,
         "upsert_bank_account": _handle_upsert_bank_account,
+        "list_household_funds": _handle_list_household_funds,
+        "get_household_fund": _handle_get_household_fund,
+        "create_household_fund": _handle_create_household_fund,
+        "patch_household_fund": _handle_patch_household_fund,
         "household_advances": _handle_household_advances,
         "personal_fund_carryover": _handle_personal_fund_carryover,
         "money_check_report": _handle_money_check_report,
         "household_receivables": _handle_household_receivables,
         "put_transaction_overrides": _handle_put_transaction_overrides,
         "put_transaction_category": _handle_put_transaction_category,
+        "put_transaction": _handle_put_transaction,
         "upsert_expense_project": _handle_upsert_expense_project,
         "create_category": _handle_create_category,
         "create_budget_item": _handle_create_budget_item,
