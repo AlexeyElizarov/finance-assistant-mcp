@@ -17,6 +17,8 @@ from households import (
     upsert_household_member,
 )
 
+_BANK_ID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
 
 class _HouseholdsMockApi:
     """Stub ApiClient capturing GET/PUT for households API."""
@@ -123,6 +125,7 @@ class HouseholdsLibTests(unittest.TestCase):
                 "final_close_only": False,
                 "valid_from": "2026-01",
                 "valid_to": None,
+                "bank_id": _BANK_ID,
                 "created_at": "t",
                 "updated_at": "t",
             }
@@ -137,12 +140,20 @@ class HouseholdsLibTests(unittest.TestCase):
                 "provider": "sparkasse",
                 "display_name": "SK",
                 "valid_from": "2026-01",
+                "bank_id": _BANK_ID,
                 "holder_member_id": "aleksey",
                 "statement_expected": True,
                 "final_close_only": False,
             },
         )
         self.assertEqual(result["bank_account"]["provider"], "sparkasse")
+        self.assertEqual(api.last_body["bank_id"], _BANK_ID)
+        self.assertNotIn("iban", api.last_body)
+        self.assertNotIn("identifiers", api.last_body)
+        self.assertNotIn("account_number", api.last_body)
+        self.assertNotIn("currency", api.last_body)
+        self.assertEqual(result["bank_account"]["identifiers"], [])
+        self.assertIsNone(result["bank_account"]["currency"])
         self.assertEqual(
             api.calls[0][1],
             "/api/v1/households/hh1/bank-accounts/sk",
@@ -157,6 +168,108 @@ class HouseholdsLibTests(unittest.TestCase):
             arguments={"household_id": "hh1"},
         )
         self.assertEqual(result["bank_accounts"][0]["id"], "sk")
+        self.assertIsNone(result["bank_accounts"][0]["bank_id"])
+        self.assertEqual(result["bank_accounts"][0]["identifiers"], [])
+        self.assertIsNone(result["bank_accounts"][0]["currency"])
+
+    def test_fin321_list_identifiers_passthrough(self) -> None:
+        identifier = {
+            "id": _BANK_ID,
+            "bank_account_id": "sk",
+            "identifier_type": "iban",
+            "value": "DE89370400440532013000",
+            "created_at": "t",
+            "updated_at": "t",
+        }
+        api = _HouseholdsMockApi(
+            body={
+                "bank_accounts": [
+                    {"id": "sk", "bank_id": _BANK_ID, "identifiers": [identifier]}
+                ]
+            }
+        )
+        result = list_bank_accounts(
+            api,
+            profile="cand",
+            base="http://test",
+            arguments={"household_id": "hh1"},
+        )
+        self.assertEqual(result["bank_accounts"][0]["identifiers"], [identifier])
+
+    def test_fin293_bank_id_required_no_http(self) -> None:
+        api = _HouseholdsMockApi()
+        with self.assertRaises(ValueError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments={
+                    "household_id": "hh1",
+                    "account_id": "sk",
+                    "provider": "sparkasse",
+                    "display_name": "SK",
+                    "valid_from": "2026-01",
+                },
+            )
+        self.assertIn("bank_id", str(ctx.exception))
+        self.assertEqual(api.calls, [])
+
+    def test_fin293_bank_id_null_no_http(self) -> None:
+        api = _HouseholdsMockApi()
+        with self.assertRaises(ValueError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments={
+                    "household_id": "hh1",
+                    "account_id": "sk",
+                    "provider": "sparkasse",
+                    "display_name": "SK",
+                    "valid_from": "2026-01",
+                    "bank_id": None,
+                },
+            )
+        self.assertIn("bank_id", str(ctx.exception))
+        self.assertEqual(api.calls, [])
+
+    def test_fin293_bank_id_not_found(self) -> None:
+        err = {"error": {"code": "bank_not_found", "message": "Банк не найден."}}
+        api = _HouseholdsMockApi(status=404, body=err)
+        with self.assertRaises(RuntimeError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments={
+                    "household_id": "hh1",
+                    "account_id": "sk",
+                    "provider": "sparkasse",
+                    "display_name": "SK",
+                    "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
+                },
+            )
+        self.assertIn("bank_not_found", str(ctx.exception))
+
+    def test_fin293_bank_id_validation_error(self) -> None:
+        err = {"error": {"code": "validation_error", "message": "bad uuid"}}
+        api = _HouseholdsMockApi(status=422, body=err)
+        with self.assertRaises(RuntimeError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments={
+                    "household_id": "hh1",
+                    "account_id": "sk",
+                    "provider": "sparkasse",
+                    "display_name": "SK",
+                    "valid_from": "2026-01",
+                    "bank_id": "not-a-uuid",
+                },
+            )
+        self.assertIn("validation_error", str(ctx.exception))
 
     def test_t6_put_422_runtime_error(self) -> None:
         err = {
@@ -219,6 +332,7 @@ class HouseholdsLibTests(unittest.TestCase):
                     "provider": "sparkasse",
                     "display_name": "SK",
                     "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
                     "statement_expected": "true",
                 },
             )
@@ -258,12 +372,14 @@ class HouseholdsHandlerPresenceTests(unittest.TestCase):
                     "provider": "sparkasse",
                     "display_name": "SK",
                     "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
                 }
             )
         payload = json.loads(out[0].text)
         self.assertTrue(payload["ok"])
         self.assertIsNotNone(api.last_body)
         self.assertNotIn("valid_to", api.last_body)
+        self.assertEqual(api.last_body["bank_id"], _BANK_ID)
 
     def test_t9_explicit_null_valid_to_handler(self) -> None:
         import server
@@ -291,6 +407,7 @@ class HouseholdsHandlerPresenceTests(unittest.TestCase):
                     "provider": "sparkasse",
                     "display_name": "SK",
                     "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
                     "valid_to": None,
                 }
             )
@@ -326,6 +443,7 @@ class HouseholdsHandlerPresenceTests(unittest.TestCase):
                     "provider": "sparkasse",
                     "display_name": "SK",
                     "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
                 }
             )
         self.assertIsNotNone(api.last_body)
@@ -357,6 +475,7 @@ class HouseholdsHandlerPresenceTests(unittest.TestCase):
                     "provider": "sparkasse",
                     "display_name": "SK",
                     "valid_from": "2026-01",
+                    "bank_id": _BANK_ID,
                     "holder_member_id": None,
                 }
             )
@@ -387,6 +506,134 @@ class HouseholdsHandlerPresenceTests(unittest.TestCase):
         self.assertNotIn("is_active", api.last_body)
 
 
+def _fin341_upsert_args(**overrides: Any) -> dict[str, Any]:
+    arguments: dict[str, Any] = {
+        "household_id": "hh1",
+        "account_id": "sk",
+        "provider": "sparkasse",
+        "display_name": "SK",
+        "valid_from": "2026-01",
+        "bank_id": _BANK_ID,
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+def _fin341_account_body(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": "sk",
+        "household_id": "hh1",
+        "provider": "sparkasse",
+        "display_name": "SK",
+        "holder_member_id": None,
+        "statement_expected": True,
+        "final_close_only": False,
+        "valid_from": "2026-01",
+        "valid_to": None,
+        "bank_id": _BANK_ID,
+        "currency": "EUR",
+        "created_at": "t",
+        "updated_at": "t",
+        "identifiers": [],
+    }
+    body.update(overrides)
+    return body
+
+
+class Fin341BankAccountCurrencyTests(unittest.TestCase):
+    """FIN-341 T6: currency passthrough on list/upsert bank accounts."""
+
+    def test_t6_1_list_missing_currency_key_defaults_null(self) -> None:
+        api = _HouseholdsMockApi(body={"bank_accounts": [{"id": "sk"}]})
+        result = list_bank_accounts(
+            api,
+            profile="cand",
+            base="http://test",
+            arguments={"household_id": "hh1"},
+        )
+        self.assertIsNone(result["bank_accounts"][0]["currency"])
+
+    def test_t6_2_upsert_omits_currency_key(self) -> None:
+        api = _HouseholdsMockApi(body=_fin341_account_body())
+        result = upsert_bank_account(
+            api,
+            profile="cand",
+            base="http://test",
+            arguments=_fin341_upsert_args(),
+        )
+        self.assertIsNotNone(api.last_body)
+        self.assertNotIn("currency", api.last_body)
+        self.assertEqual(result["bank_account"]["currency"], "EUR")
+
+    def test_t6_3_upsert_copies_padded_currency_as_is(self) -> None:
+        api = _HouseholdsMockApi(body=_fin341_account_body(currency="EUR"))
+        result = upsert_bank_account(
+            api,
+            profile="cand",
+            base="http://test",
+            arguments=_fin341_upsert_args(currency=" eur "),
+        )
+        self.assertIsNotNone(api.last_body)
+        self.assertEqual(api.last_body["currency"], " eur ")
+        self.assertEqual(result["bank_account"]["currency"], "EUR")
+
+    def test_t6_4_upsert_copies_whitespace_currency_as_is(self) -> None:
+        api = _HouseholdsMockApi(body=_fin341_account_body())
+        upsert_bank_account(
+            api,
+            profile="cand",
+            base="http://test",
+            arguments=_fin341_upsert_args(currency="   "),
+        )
+        self.assertIsNotNone(api.last_body)
+        self.assertEqual(api.last_body["currency"], "   ")
+
+    def test_t6_5_schema_rejects_non_string_currency(self) -> None:
+        import jsonschema
+        import server
+
+        tools_list = asyncio.run(server.list_tools())
+        upsert_ba = next(t for t in tools_list if t.name == "upsert_bank_account")
+        instance = _fin341_upsert_args(currency=123)
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance, upsert_ba.inputSchema)
+        instance_null = _fin341_upsert_args(currency=None)
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance_null, upsert_ba.inputSchema)
+
+    def test_t6_6_handler_rejects_null_currency_without_http(self) -> None:
+        api = _HouseholdsMockApi()
+        with self.assertRaises(ValueError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments=_fin341_upsert_args(currency=None),
+            )
+        self.assertIn("currency", str(ctx.exception))
+        self.assertEqual(api.calls, [])
+
+    def test_t6_7_forwards_immutable_currency_error(self) -> None:
+        err = {
+            "error": {
+                "code": "bank_account_currency_immutable",
+                "message": "Валюта банковского счёта не изменяется.",
+            }
+        }
+        api = _HouseholdsMockApi(status=409, body=err)
+        with self.assertRaises(RuntimeError) as ctx:
+            upsert_bank_account(
+                api,
+                profile="cand",
+                base="http://test",
+                arguments=_fin341_upsert_args(currency="RUB"),
+            )
+        message = str(ctx.exception)
+        self.assertIn("409", message)
+        self.assertIn("bank_account_currency_immutable", message)
+        self.assertEqual(api.last_body["currency"], "RUB")
+
+
 class HouseholdsSchemaTests(unittest.TestCase):
     """T12: six tools registered."""
 
@@ -408,6 +655,13 @@ class HouseholdsSchemaTests(unittest.TestCase):
         props = upsert_ba.inputSchema["properties"]
         self.assertEqual(props["valid_to"]["type"], ["string", "null"])
         self.assertEqual(props["holder_member_id"]["type"], ["string", "null"])
+        self.assertIn("bank_id", upsert_ba.inputSchema.get("required") or [])
+        self.assertIn("bank_id", props)
+        self.assertEqual(props["currency"]["type"], "string")
+        self.assertNotIn("currency", upsert_ba.inputSchema.get("required") or [])
+        self.assertFalse(upsert_ba.inputSchema.get("additionalProperties", True))
+        for forbidden in ("iban", "identifiers", "account_number"):
+            self.assertNotIn(forbidden, props)
         upsert_hh = next(t for t in tools_list if t.name == "upsert_household")
         self.assertEqual(
             set(upsert_hh.inputSchema.get("required") or []),

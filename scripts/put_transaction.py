@@ -17,9 +17,40 @@ DECLARED_BODY_FIELDS: tuple[str, ...] = (
     "project",
     "project_source",
     "fund_id",
+    "bank_account_id",
 )
 
-_RESPONSE_FIELDS: tuple[str, ...] = ("id",) + DECLARED_BODY_FIELDS
+# Shared JSON-Schema properties for declared body fields (FIN-260 / FIN-265).
+BODY_FIELD_SCHEMA_PROPERTIES: dict[str, dict[str, Any]] = {
+    "transaction_category": {"type": ["string", "null"]},
+    "category_source": {"type": ["string", "null"]},
+    "reconciliation_note": {"type": ["string", "null"]},
+    "transaction_type": {"type": ["string", "null"]},
+    "expense_owner": {"type": ["string", "null"]},
+    "project": {"type": ["string", "null"]},
+    "project_source": {"type": ["string", "null"]},
+    "fund_id": {
+        "type": ["string", "null"],
+        "description": "Assign fund or null/empty to clear (API)",
+    },
+    "bank_account_id": {
+        "type": ["string", "null"],
+        "description": (
+            "Assign bank account; null/blank rejected by API "
+            "(bank_account_required); omit = leave unchanged"
+        ),
+    },
+}
+
+_RESPONSE_FIELDS: tuple[str, ...] = (
+    "id",
+) + DECLARED_BODY_FIELDS + (
+    "currency",
+    "budget_currency",
+    "planned_rate",
+    "posted_amount",
+    "posted_currency",
+)
 
 
 def format_api_error(

@@ -16,6 +16,9 @@ _TRANSACTION_FIELDS = (
     "classification_status",
     "reconciliation_note",
     "expense_owner",
+    "posted_amount",
+    "posted_currency",
+    "bank_account_id",
 )
 
 _MISSING = object()

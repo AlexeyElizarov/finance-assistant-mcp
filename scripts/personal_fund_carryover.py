@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 import tempfile
 import urllib.error
 import urllib.parse
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -25,32 +24,11 @@ from household_advances import (
 )
 from household_base_share import (
     compute_household_base_share,
-    load_budget_items,
     load_mapping_file,
     period_start,
-    resolve_article_match,
     round_money as base_round_money,
 )
 from monthly_close_lib import fetch_reconciliation, parse_period
-
-
-def _load_query_plan_fact() -> Any:
-    """
-    Load ``query-plan-fact.py`` under a synthetic module name.
-
-    :return: Loaded module with ``fetch_transactions``
-    """
-    path = Path(__file__).resolve().parent / "query-plan-fact.py"
-    spec = importlib.util.spec_from_file_location("query_plan_fact", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["query_plan_fact"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_fetch_transactions = _load_query_plan_fact().fetch_transactions
 
 SUPPORTED_LOG_SCHEMA_VERSION = 1
 HOUSEHOLD_CARRYOVER_API_PATH = "/api/v1/household/personal-fund-carryover"
@@ -61,6 +39,53 @@ CANONICAL_FORMULA = (
     "carryover = starting_fund - actual_spend; "
     "available_personal_fund = base_share(target) + carryover - advance_deduction"
 )
+
+
+def period_to_yyyymm(yyyy_mm: str) -> str:
+    """
+    Convert ``YYYY-MM`` to compact ``YYYYMM`` for fund financing blocks.
+
+    :param yyyy_mm: Normalized calendar month
+    :return: ``YYYYMM`` string
+    """
+    return yyyy_mm.replace("-", "")
+
+
+def empty_fund_financing_block(accounting_period: str = "") -> dict[str, Any]:
+    """
+    Build the empty fund financing block (FIN-280 D-05).
+
+    :param accounting_period: Compact ``YYYYMM`` or empty string for money-check fallback
+    :return: Empty financing block dict
+    """
+    return {
+        "accounting_period": accounting_period,
+        "projections": [],
+        "outgoing_by_fund": {},
+        "incoming_by_fund": {},
+        "outgoing_by_member": {},
+        "outgoing_by_analytics": [],
+        "warnings": [],
+    }
+
+
+def resolve_fund_financing_from_api(
+    api_body: dict[str, Any] | None,
+    *,
+    closed_period: str,
+) -> dict[str, Any]:
+    """
+    Take ``fund_financing`` from HTTP body or return the empty block.
+
+    :param api_body: Carryover API response or ``None``
+    :param closed_period: Closed month ``YYYY-MM``
+    :return: Financing block for MCP response
+    """
+    if isinstance(api_body, dict):
+        block = api_body.get("fund_financing")
+        if isinstance(block, dict):
+            return dict(block)
+    return empty_fund_financing_block(period_to_yyyymm(closed_period))
 
 
 def default_carryover_log_path(profile: str) -> Path:
@@ -344,35 +369,6 @@ def resolve_incoming_carryover_cutover(
     return resolve_incoming_carryover(log, closed_period, partner_ids, override=None)
 
 
-def resolve_personal_expense_item_ids(
-    mapping: dict[str, Any],
-    budget_items: list[dict[str, Any]],
-) -> dict[str, str]:
-    """
-    Resolve personal expense articles from mapping sanity lists.
-
-    :param mapping: Contour mapping document
-    :param budget_items: Budget catalog
-    :return: ``budget_item_id → article name``
-    :raises RuntimeError: On ambiguous or missing required match
-    """
-    entries: list[dict[str, Any]] = []
-    for key in ("legacy_irr_sanity", "personal_subscriptions_sanity"):
-        block = mapping.get(key)
-        if isinstance(block, list):
-            entries.extend(block)
-    item_ids: dict[str, str] = {}
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        match = str(entry.get("article_match", ""))
-        resolved = resolve_article_match(match, budget_items, required=True)
-        assert resolved is not None
-        item_id, article = resolved
-        item_ids[item_id] = article
-    return item_ids
-
-
 def _parse_attribution_block(mapping: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
     block = mapping.get("account_attribution")
     if not isinstance(block, dict):
@@ -388,68 +384,81 @@ def _parse_attribution_block(mapping: dict[str, Any]) -> tuple[dict[str, str], l
     return defaults, overrides
 
 
-def attribute_partner_id(
-    *,
-    provider: str,
-    description: str,
-    expense_owner: str | None,
-    defaults: dict[str, str],
-    overrides: list[dict[str, Any]],
-    partner_ids: frozenset[str],
-) -> str | None:
+def _normalize_spend_category(raw: Any) -> str | None:
     """
-    Resolve expense owner partner for one transaction.
+    Normalize a line category for spend-line JSON.
 
-    :param provider: Transaction provider id
-    :param description: Transaction description
-    :param expense_owner: Optional API field (FIN-36)
-    :param defaults: Default partner by provider map
-    :param overrides: Description override rules
-    :param partner_ids: Valid partner ids
-    :return: Partner id or ``None`` when unattributed
+    :param raw: Stored category value
+    :return: Stripped category or ``None`` when empty
     """
-    if expense_owner and expense_owner in partner_ids:
-        return expense_owner
-    provider_key = str(provider or "")
-    hay = description.casefold()
-    for rule in overrides:
-        rule_provider = str(rule.get("provider", ""))
-        if rule_provider and rule_provider != provider_key:
-            continue
-        needle = str(rule.get("contains", ""))
-        if needle and needle.casefold() in hay:
-            pid = str(rule.get("partner_id", ""))
-            if pid in partner_ids:
-                return pid
-    default_pid = defaults.get(provider_key)
-    if default_pid in partner_ids:
-        return default_pid
-    return None
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text if text else None
 
 
-def fetch_provider_index(api: ApiClient, yyyy_mm: str) -> dict[str, dict[str, str]]:
+def _line_amount(raw: Any) -> Decimal:
     """
-    Load transaction provider/description index keyed by ``transaction_key``.
+    Parse a line amount as a non-negative Decimal.
+
+    :param raw: Stored amount
+    :return: Absolute Decimal amount
+    """
+    return abs(Decimal(str(raw if raw is not None else "0").replace(",", ".")))
+
+
+def _load_funds_by_id(api: ApiClient) -> dict[str, dict[str, Any]]:
+    """
+    Load the household funds catalogue keyed by fund id.
 
     :param api: API client
-    :param yyyy_mm: Accounting month ``YYYY-MM``
-    :return: ``transaction_key → {provider, description}``
+    :return: ``fund_id → fund row``
     """
-    ymmm = parse_period(yyyy_mm).ymmm
-    query = urllib.parse.urlencode({"accounting_period": ymmm})
-    body = api.get_json(f"/api/v1/transactions?{query}")
-    index: dict[str, dict[str, str]] = {}
-    for raw in body.get("rows", []):
-        if not isinstance(raw, dict):
+    status, body = api.request("GET", "/api/v1/households")
+    if status != 200 or not isinstance(body, dict):
+        raise RuntimeError(f"GET /api/v1/households -> HTTP {status}: {body}")
+    households = body.get("households")
+    if not isinstance(households, list):
+        raise RuntimeError("GET /api/v1/households: households is not a list")
+    catalog: dict[str, dict[str, Any]] = {}
+    for row in households:
+        if not isinstance(row, dict) or not row.get("id"):
             continue
-        key = str(raw.get("transaction_key", ""))
-        if not key:
-            continue
-        index[key] = {
-            "provider": str(raw.get("provider", "")),
-            "description": str(raw.get("description", "")),
-        }
-    return index
+        household_id = str(row["id"])
+        path = f"/api/v1/households/{urllib.parse.quote(household_id, safe='')}/funds"
+        fund_status, fund_body = api.request("GET", path)
+        if fund_status != 200 or not isinstance(fund_body, dict):
+            raise RuntimeError(f"GET {path} -> HTTP {fund_status}: {fund_body}")
+        funds = fund_body.get("funds")
+        if not isinstance(funds, list):
+            raise RuntimeError(f"GET {path}: funds is not a list")
+        for fund in funds:
+            if not isinstance(fund, dict):
+                continue
+            fund_id = str(fund.get("id") or "").strip()
+            if fund_id:
+                catalog[fund_id] = fund
+    return catalog
+
+
+def _fetch_operation_lines(api: ApiClient, transaction_id: str) -> list[dict[str, Any]]:
+    """
+    Load expense-capable lines for one operation.
+
+    :param api: API client
+    :param transaction_id: Operation id
+    :return: Line dicts
+    """
+    path = (
+        f"/api/v1/transactions/{urllib.parse.quote(transaction_id, safe='')}/lines"
+    )
+    status, body = api.request("GET", path)
+    if status != 200 or not isinstance(body, dict):
+        raise RuntimeError(f"GET {path} -> HTTP {status}: {body}")
+    lines = body.get("lines")
+    if not isinstance(lines, list):
+        return []
+    return [row for row in lines if isinstance(row, dict)]
 
 
 def compute_personal_spend(
@@ -462,56 +471,133 @@ def compute_personal_spend(
     partners_meta: list[dict[str, Any]],
 ) -> tuple[dict[str, float], dict[str, list[dict[str, Any]]], list[str]]:
     """
-    Sum attributed personal expense transactions per partner.
+    Sum personal-fund expense lines per household member (FIN-324).
 
     :param api: API client
-    :param budget_version_id: Budget version UUID
+    :param budget_version_id: Unused; kept for caller compatibility
     :param closed_period: Month ``YYYY-MM``
-    :param mapping: Contour mapping
-    :param partner_ids: Partner id set
-    :param partners_meta: Partner rows from mapping (for display names)
+    :param mapping: Unused for spend; members come from ``partner_ids``
+    :param partner_ids: Member id set
+    :param partners_meta: Unused; display names stay in the mapping path
     :return: Spend totals, spend line breakdown, warnings
     """
-    budget_items = load_budget_items(api)
-    personal_items = resolve_personal_expense_item_ids(mapping, budget_items)
-    defaults, overrides = _parse_attribution_block(mapping)
+    del budget_version_id, mapping, partners_meta
+    funds = _load_funds_by_id(api)
+    ymmm = parse_period(closed_period).ymmm
+    query = urllib.parse.urlencode({"accounting_period": ymmm})
+    listing = api.get_json(f"/api/v1/transactions?{query}")
+    rows = listing.get("rows", []) if isinstance(listing, dict) else []
+    spend_acc: dict[str, Decimal] = {pid: Decimal("0.00") for pid in partner_ids}
+    lines_out: dict[str, list[dict[str, Any]]] = {pid: [] for pid in partner_ids}
     warnings: list[str] = []
-    if not defaults and not overrides:
-        warnings.append("missing_account_attribution")
-    provider_index = fetch_provider_index(api, closed_period)
-    period_start_iso = period_start(closed_period)
-    spend = {pid: 0.0 for pid in partner_ids}
-    lines: dict[str, list[dict[str, Any]]] = {pid: [] for pid in partner_ids}
-    for item_id, article in personal_items.items():
-        txns = _fetch_transactions(api, budget_version_id, period_start_iso, item_id)
-        for txn in txns:
-            amount = abs(float(str(txn.get("amount", "0")).replace(",", ".")))
-            key = str(txn.get("transaction_key", ""))
-            meta = provider_index.get(key, {})
-            provider = meta.get("provider", "")
-            description = meta.get("description") or str(txn.get("description", ""))
-            expense_owner = txn.get("expense_owner")
-            owner = attribute_partner_id(
-                provider=provider,
-                description=description,
-                expense_owner=str(expense_owner) if expense_owner else None,
-                defaults=defaults,
-                overrides=overrides,
-                partner_ids=partner_ids,
-            )
-            if owner is None:
-                ref = key or str(txn.get("source_row_index", "unknown"))
-                warnings.append(f"unattributed_spend:{ref}")
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        transaction_id = str(raw.get("id") or "").strip()
+        if not transaction_id:
+            continue
+        for line in _fetch_operation_lines(api, transaction_id):
+            assignment = line.get("assignment")
+            if not isinstance(assignment, dict):
+                assignment = {}
+            line_type = str(assignment.get("type") or "").strip().upper()
+            if line_type != "C":
                 continue
-            spend[owner] = round_money(spend[owner] + amount)
-            lines[owner].append(
+            line_id = str(line.get("id") or "").strip()
+            if not line_id:
+                continue
+            amount = _line_amount(line.get("amount")).quantize(Decimal("0.01"))
+            fund_raw = assignment.get("fund_id")
+            fund_id = str(fund_raw).strip() if fund_raw is not None else ""
+            if not fund_id:
+                warnings.append(f"unattributed_spend:{line_id}")
+                continue
+            fund = funds.get(fund_id)
+            if fund is None:
+                warnings.append(f"unattributed_spend:{line_id}")
+                continue
+            rule = str(fund.get("allocation_rule") or "")
+            member_raw = fund.get("member_id")
+            member_id = str(member_raw).strip() if member_raw is not None else ""
+            if rule != "equal_share" or not member_id:
+                continue
+            if member_id not in partner_ids:
+                warnings.append(f"unattributed_spend:{line_id}")
+                continue
+            spend_acc[member_id] += amount
+            lines_out[member_id].append(
                 {
-                    "article": article,
-                    "amount": round_money(amount),
-                    "transaction_key": key or None,
+                    "line_id": line_id,
+                    "amount": round_money(float(amount)),
+                    "fund_id": fund_id,
+                    "category": _normalize_spend_category(assignment.get("category")),
                 }
             )
-    return spend, lines, warnings
+    for pid in partner_ids:
+        lines_out[pid].sort(key=lambda row: str(row["line_id"]))
+    spend = {
+        pid: round_money(float(value.quantize(Decimal("0.01"))))
+        for pid, value in spend_acc.items()
+    }
+    return spend, lines_out, warnings
+
+
+def resolve_period_personal_spend(
+    api: ApiClient,
+    *,
+    period: str,
+    partner_ids: frozenset[str],
+    partners_meta: list[dict[str, Any]],
+    mapping: dict[str, Any],
+    budget_version_id: str,
+    allow_non_final: bool,
+) -> tuple[dict[str, float], dict[str, list[dict[str, Any]]], list[str]]:
+    """
+    Resolve personal spend via HTTP 200 body or local fund fallback (FIN-324).
+
+    :param api: API client
+    :param period: Spend month ``YYYY-MM``
+    :param partner_ids: Member id set
+    :param partners_meta: Mapping partner rows
+    :param mapping: Contour mapping
+    :param budget_version_id: Budget version UUID
+    :param allow_non_final: Forward non-final period bypass to HTTP
+    :return: Spend totals, spend lines, warnings
+    """
+    source, api_body = probe_household_carryover_api(
+        api,
+        period,
+        None,
+        allow_non_final=allow_non_final,
+    )
+    if source == "api" and api_body is not None:
+        spend = {pid: 0.0 for pid in partner_ids}
+        lines: dict[str, list[dict[str, Any]]] = {pid: [] for pid in partner_ids}
+        raw_partners = api_body.get("partners")
+        if isinstance(raw_partners, list):
+            for row in raw_partners:
+                if not isinstance(row, dict) or not row.get("id"):
+                    continue
+                pid = str(row["id"])
+                if pid not in partner_ids:
+                    continue
+                spend[pid] = round_money(float(row.get("actual_spend", 0.0)))
+        warnings: list[str] = []
+        raw_warnings = api_body.get("warnings")
+        if isinstance(raw_warnings, list):
+            for item in raw_warnings:
+                text = str(item)
+                if text.startswith("unattributed_spend:"):
+                    warnings.append(text)
+        return spend, lines, warnings
+    return compute_personal_spend(
+        api,
+        budget_version_id=budget_version_id,
+        closed_period=period,
+        mapping=mapping,
+        partner_ids=partner_ids,
+        partners_meta=partners_meta,
+    )
 
 
 def probe_household_carryover_api(
@@ -520,6 +606,7 @@ def probe_household_carryover_api(
     target_period: str | None,
     *,
     incoming_carryover: dict[str, float] | None = None,
+    allow_non_final: bool = False,
 ) -> tuple[str, dict[str, Any] | None]:
     """
     Probe FIN-102 household carryover endpoint.
@@ -528,12 +615,15 @@ def probe_household_carryover_api(
     :param closed_period: Closed month
     :param target_period: Optional target month
     :param incoming_carryover: Optional map passed as query (FIN-105 semantics)
+    :param allow_non_final: Forward non-final period bypass to HTTP
     :return: ``("api", body)`` or ``("mapping", None)``
     :raises RuntimeError: On 5xx or unexpected errors
     """
     params: dict[str, str] = {"closed_period": period_start(closed_period)}
     if target_period:
         params["target_period"] = period_start(target_period)
+    if allow_non_final:
+        params["allow_non_final"] = "true"
     if incoming_carryover is not None:
         params["incoming_carryover"] = json.dumps(
             {pid: float(amount) for pid, amount in incoming_carryover.items()},
@@ -593,6 +683,7 @@ def normalize_api_partners(
             "incoming_carryover": round_money(float(src.get("incoming_carryover", 0.0))),
             "starting_fund": round_money(float(src.get("starting_fund", 0.0))),
             "actual_spend": round_money(float(src.get("actual_spend", 0.0))),
+            "outgoing_financing": round_money(float(src.get("outgoing_financing", 0.0))),
             "balance": balance,
             "carryover": carryover,
             "overrun_amount": overrun_amount,
@@ -657,6 +748,7 @@ def build_partner_rows_mapping(
             "incoming_carryover": round_money(incoming.get(pid, 0.0)),
             "starting_fund": starting,
             "actual_spend": spend,
+            "outgoing_financing": 0.0,
             "balance": balance,
             "carryover": balance,
             "overrun_amount": overrun_amount,
@@ -864,8 +956,11 @@ def compute_personal_fund_carryover(
         closed_yyyy_mm,
         target_yyyy_mm,
         incoming_carryover=override_map,
+        allow_non_final=allow_non_final,
     )
     spend_warnings: list[str] = []
+    formula = CANONICAL_FORMULA
+    fund_financing = empty_fund_financing_block(period_to_yyyymm(closed_yyyy_mm))
     if source == "api" and api_body is not None:
         partners_rows = normalize_api_partners(
             api_body,
@@ -873,6 +968,18 @@ def compute_personal_fund_carryover(
             partners_meta=partners_meta,
             include_target=include_target,
         )
+        api_formula = api_body.get("formula")
+        if isinstance(api_formula, str) and api_formula.strip():
+            formula = api_formula
+        fund_financing = resolve_fund_financing_from_api(
+            api_body, closed_period=closed_yyyy_mm
+        )
+        api_warnings = api_body.get("warnings")
+        if isinstance(api_warnings, list):
+            for item in api_warnings:
+                text = str(item)
+                if text and text not in warnings:
+                    warnings.append(text)
     else:
         incoming = resolve_incoming_carryover_cutover(
             api,
@@ -1022,8 +1129,9 @@ def compute_personal_fund_carryover(
         "advances_marked": advances_marked,
         "log_persisted": log_persisted,
         "persist_target": persist_target if not effective_dry_run else None,
-        "formula": CANONICAL_FORMULA,
+        "formula": formula,
         "partners": partners_rows,
+        "fund_financing": fund_financing,
         "warnings": warnings,
         "marked_advances": marked_advances,
     }

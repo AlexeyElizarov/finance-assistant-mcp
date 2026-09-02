@@ -1,0 +1,138 @@
+{
+  "date": "29.08.2026",
+  "commit": "db8af05",
+  "db": "C:\\Users\\haake\\AppData\\Local\\finance-planning\\finance.db",
+  "profile": "cand",
+  "base": "http://127.0.0.1:8001",
+  "closed_period": "202601",
+  "fin362_no_empty_collision": true,
+  "fixtures": [
+    "6b058161-8864-42d7-bd4a-4b14644ee311",
+    "fin359-null-cb456389",
+    "e4272b9d-c8ce-4701-87d6-45169b8c2269",
+    "730ed953-f9e6-42c5-90f2-83a86813716b",
+    "88b47017-e513-4436-a650-299fc86cfbf8"
+  ],
+  "cleanup_ok": true,
+  "cleanup_err": null,
+  "T1": {
+    "status": "PASSED",
+    "steps": [
+      {
+        "step": 2,
+        "actual": "rows=1; bank_account_id=acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 3,
+        "actual": "bank_account_id=acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 1,
+        "actual": "created 6b058161-8864-42d7-bd4a-4b14644ee311 with acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 4,
+        "actual": "null fixture fin359-null-cb456389",
+        "result": "PASSED"
+      },
+      {
+        "step": 5,
+        "actual": "groups=1; no bank_account_id",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "T2": {
+    "status": "PASSED",
+    "steps": [
+      {
+        "step": 1,
+        "actual": "bank_account_id=acc-tbank-rub",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "omit kept acc-tbank-rub",
+        "result": "PASSED"
+      },
+      {
+        "step": 3,
+        "actual": "strip -> acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 4,
+        "actual": "category response has bank_account_id",
+        "result": "PASSED"
+      },
+      {
+        "step": 5,
+        "actual": "schema additionalProperties=false without bank_account_id; unchanged=acc-c24",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "T3": {
+    "status": "PASSED",
+    "steps": [
+      {
+        "step": 1,
+        "actual": "HTTP 422 bank_account_required; unchanged=acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "blank -> bank_account_required; unchanged",
+        "result": "PASSED"
+      },
+      {
+        "step": 3,
+        "actual": "validation_error; unchanged",
+        "result": "PASSED"
+      },
+      {
+        "step": 4,
+        "actual": "HTTP 404 bank_account_not_found; unchanged",
+        "result": "PASSED"
+      },
+      {
+        "step": 5,
+        "actual": "period_closed; unchanged=acc-c24",
+        "result": "PASSED"
+      },
+      {
+        "step": 6,
+        "actual": "allow_closed wrote acc-tbank-rub",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "T4": {
+    "status": "PASSED",
+    "steps": [
+      {
+        "step": 1,
+        "actual": "id-c24=e4272b9d-c8ce-4701-87d6-45169b8c2269; id-tbank=730ed953-f9e6-42c5-90f2-83a86813716b",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "filtered c24; n=2",
+        "result": "PASSED"
+      },
+      {
+        "step": 3,
+        "actual": "__empty__ includes null fixture; n=1",
+        "result": "PASSED"
+      },
+      {
+        "step": 4,
+        "actual": "empty list",
+        "result": "PASSED"
+      }
+    ]
+  }
+}

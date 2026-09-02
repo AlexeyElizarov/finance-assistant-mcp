@@ -94,6 +94,20 @@ _delete_by_filter = _load_script_module("delete_by_filter", "delete-by-filter.py
 _household_base_share = _load_script_module("household_base_share", "household_base_share.py")
 _fx_rates = _load_script_module("fx_rates", "fx_rates.py")
 _households = _load_script_module("households", "households.py")
+_household_budget_currencies = _load_script_module(
+    "household_budget_currencies",
+    "household_budget_currencies.py",
+)
+_banks = _load_script_module("banks", "banks.py")
+_accounting_subjects = _load_script_module(
+    "accounting_subjects",
+    "accounting_subjects.py",
+)
+_bank_account_identifiers = _load_script_module(
+    "bank_account_identifiers",
+    "bank_account_identifiers.py",
+)
+_payment_means = _load_script_module("payment_means", "payment_means.py")
 _household_funds = _load_script_module("household_funds", "household_funds.py")
 _household_advances = _load_script_module("household_advances", "household_advances.py")
 _household_receivables = _load_script_module("household_receivables", "household_receivables.py")
@@ -107,9 +121,34 @@ _put_transaction = _load_script_module(
     "put_transaction",
     "put_transaction.py",
 )
+_put_transactions = _load_script_module(
+    "put_transactions",
+    "put_transactions.py",
+)
+_put_transaction_lines = _load_script_module(
+    "put_transaction_lines",
+    "put_transaction_lines.py",
+)
+_get_transaction_lines = _load_script_module(
+    "get_transaction_lines",
+    "get_transaction_lines.py",
+)
+_get_transaction = _load_script_module(
+    "get_transaction",
+    "get_transaction.py",
+)
+_expense_settlements = _load_script_module(
+    "expense_settlements",
+    "expense_settlements.py",
+)
+_internal_transfer_matches = _load_script_module(
+    "internal_transfer_matches",
+    "internal_transfer_matches.py",
+)
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
 fetch_month_row = _query_plan_fact.fetch_month_row
+fetch_month_rows = _query_plan_fact.fetch_month_rows
 fetch_plan_fact_transactions = _query_plan_fact.fetch_transactions
 iter_months = _query_plan_fact.iter_months
 resolve_budget_item_id = _query_plan_fact.resolve_budget_item_id
@@ -127,6 +166,62 @@ list_household_members = _households.list_household_members
 upsert_household_member = _households.upsert_household_member
 list_bank_accounts = _households.list_bank_accounts
 upsert_bank_account = _households.upsert_bank_account
+list_household_budget_currencies = (
+    _household_budget_currencies.list_household_budget_currencies
+)
+create_household_budget_currency = (
+    _household_budget_currencies.create_household_budget_currency
+)
+list_banks = _banks.list_banks
+get_bank = _banks.get_bank
+create_bank = _banks.create_bank
+create_banks = _banks.create_banks
+patch_bank = _banks.patch_bank
+patch_banks = _banks.patch_banks
+delete_bank = _banks.delete_bank
+delete_banks = _banks.delete_banks
+list_accounting_subjects = _accounting_subjects.list_accounting_subjects
+get_accounting_subject = _accounting_subjects.get_accounting_subject
+create_accounting_subject = _accounting_subjects.create_accounting_subject
+create_accounting_subjects = _accounting_subjects.create_accounting_subjects
+patch_accounting_subject = _accounting_subjects.patch_accounting_subject
+patch_accounting_subjects = _accounting_subjects.patch_accounting_subjects
+delete_accounting_subject = _accounting_subjects.delete_accounting_subject
+delete_accounting_subjects = _accounting_subjects.delete_accounting_subjects
+get_household_accounting_subject = _households.get_household_accounting_subject
+get_household_member_accounting_subject = (
+    _households.get_household_member_accounting_subject
+)
+link_household_member_accounting_subject = (
+    _households.link_household_member_accounting_subject
+)
+unlink_household_member_accounting_subject = (
+    _households.unlink_household_member_accounting_subject
+)
+list_bank_account_identifiers = _bank_account_identifiers.list_bank_account_identifiers
+get_bank_account_identifier = _bank_account_identifiers.get_bank_account_identifier
+create_bank_account_identifier = _bank_account_identifiers.create_bank_account_identifier
+create_bank_account_identifiers = _bank_account_identifiers.create_bank_account_identifiers
+patch_bank_account_identifier = _bank_account_identifiers.patch_bank_account_identifier
+patch_bank_account_identifiers = _bank_account_identifiers.patch_bank_account_identifiers
+delete_bank_account_identifier = _bank_account_identifiers.delete_bank_account_identifier
+delete_bank_account_identifiers = _bank_account_identifiers.delete_bank_account_identifiers
+list_payment_instruments = _payment_means.list_payment_instruments
+get_payment_instrument = _payment_means.get_payment_instrument
+create_payment_instrument = _payment_means.create_payment_instrument
+create_payment_instruments = _payment_means.create_payment_instruments
+patch_payment_instrument = _payment_means.patch_payment_instrument
+patch_payment_instruments = _payment_means.patch_payment_instruments
+delete_payment_instrument = _payment_means.delete_payment_instrument
+delete_payment_instruments = _payment_means.delete_payment_instruments
+list_payment_means_fund_assignments = _payment_means.list_payment_means_fund_assignments
+get_payment_means_fund_assignment = _payment_means.get_payment_means_fund_assignment
+create_payment_means_fund_assignment = _payment_means.create_payment_means_fund_assignment
+create_payment_means_fund_assignments = _payment_means.create_payment_means_fund_assignments
+patch_payment_means_fund_assignment = _payment_means.patch_payment_means_fund_assignment
+patch_payment_means_fund_assignments = _payment_means.patch_payment_means_fund_assignments
+delete_payment_means_fund_assignment = _payment_means.delete_payment_means_fund_assignment
+delete_payment_means_fund_assignments = _payment_means.delete_payment_means_fund_assignments
 list_household_funds = _household_funds.list_household_funds
 get_household_fund = _household_funds.get_household_fund
 create_household_fund = _household_funds.create_household_fund
@@ -137,11 +232,40 @@ compute_personal_fund_carryover = _personal_fund_carryover.compute_personal_fund
 compute_money_check_report = _money_check_report.compute_money_check_report
 put_transaction_category = _put_transaction_category.put_transaction_category
 put_transaction = _put_transaction.put_transaction
+put_transactions = _put_transactions.put_transactions
+validate_put_transactions_arguments = _put_transactions.validate_batch_arguments
+put_transaction_lines = _put_transaction_lines.put_transaction_lines
+get_transaction_lines = _get_transaction_lines.get_transaction_lines
+get_transaction = _get_transaction.get_transaction
+create_expense_settlement = _expense_settlements.create_expense_settlement
+get_expense_settlement = _expense_settlements.get_expense_settlement
+patch_expense_settlement = _expense_settlements.patch_expense_settlement
+delete_expense_settlement = _expense_settlements.delete_expense_settlement
+list_expense_settlements = _expense_settlements.list_expense_settlements
+get_line_settlement_state = _expense_settlements.get_line_settlement_state
+list_internal_transfer_matches = (
+    _internal_transfer_matches.list_internal_transfer_matches
+)
+get_internal_transfer_match = _internal_transfer_matches.get_internal_transfer_match
+create_internal_transfer_match = (
+    _internal_transfer_matches.create_internal_transfer_match
+)
+create_internal_transfer_matches = (
+    _internal_transfer_matches.create_internal_transfer_matches
+)
+delete_internal_transfer_match = (
+    _internal_transfer_matches.delete_internal_transfer_match
+)
+delete_internal_transfer_matches = (
+    _internal_transfer_matches.delete_internal_transfer_matches
+)
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
 
 _sessions: dict[str, tuple[ApiClient, str]] = {}
+_active_profile: str | None = None
+_active_base: str | None = None
 
 server = Server("finance-assistant")
 
@@ -168,12 +292,16 @@ def get_session(profile: str, base: str | None = None) -> tuple[ApiClient, str]:
     :param base: Optional API base URL
     :return: Client and resolved base URL
     """
+    global _active_profile, _active_base
     key = _session_key(profile, base)
     if key in _sessions:
-        return _sessions[key]
-    effective_base = base or DEFAULT_BASE
-    api, resolved = connect_api(effective_base, profile)
-    _sessions[key] = (api, resolved)
+        api, resolved = _sessions[key]
+    else:
+        effective_base = base or DEFAULT_BASE
+        api, resolved = connect_api(effective_base, profile)
+        _sessions[key] = (api, resolved)
+    _active_profile = profile
+    _active_base = resolved
     return api, resolved
 
 
@@ -546,10 +674,11 @@ def _handle_query_plan_fact(arguments: dict[str, Any]) -> list[types.TextContent
         arguments.get("budget_item_id"),
     )
     months = iter_months(date_from, date_to)
-    rows = [
-        fetch_month_row(api, budget_version_id, period, item_id, article_name)
-        for period in months
-    ]
+    rows: list[Any] = []
+    for period in months:
+        rows.extend(
+            fetch_month_rows(api, budget_version_id, period, item_id, article_name)
+        )
     payload: dict[str, Any] = {
         "base": base,
         "profile": profile,
@@ -559,6 +688,7 @@ def _handle_query_plan_fact(arguments: dict[str, Any]) -> list[types.TextContent
         "months": [
             {
                 "period": row.period,
+                "currency": row.currency,
                 "plan": row.plan,
                 "fact": row.fact,
                 "variance": row.variance,
@@ -567,12 +697,19 @@ def _handle_query_plan_fact(arguments: dict[str, Any]) -> list[types.TextContent
         ],
     }
     if include_tx:
-        for period in months:
-            txs = fetch_plan_fact_transactions(api, budget_version_id, period, item_id)
+        for month_entry in payload["months"]:
+            currency = month_entry["currency"]
+            if currency is None:
+                continue
+            txs = fetch_plan_fact_transactions(
+                api,
+                budget_version_id,
+                month_entry["period"],
+                item_id,
+                currency=currency,
+            )
             if txs:
-                for month_entry in payload["months"]:
-                    if month_entry["period"] == period:
-                        month_entry["transactions"] = txs
+                month_entry["transactions"] = txs
     return _json_text(payload)
 
 
@@ -629,16 +766,35 @@ def _handle_upsert_fx_rate(arguments: dict[str, Any]) -> list[types.TextContent]
     return _json_text(payload)
 
 
+def _household_master_session(
+    arguments: dict[str, Any],
+) -> tuple[Any, str, str]:
+    """
+    Resolve profile and base for household and member tools (FIN-369 D-02).
+
+    :param arguments: Raw MCP arguments
+    :return: API client, effective profile, effective base
+    """
+    profile = _households.resolve_profile(arguments, _active_profile)
+    if "base" in arguments:
+        base = _households.resolve_base(arguments, None)
+        api, _resolved = get_session(profile, base)
+        return api, profile, base
+    api, resolved = get_session(profile, None)
+    base = _households.strip_u0020(str(resolved))
+    if not base:
+        raise ValueError("base is required")
+    return api, profile, base
+
+
 def _handle_list_households(arguments: dict[str, Any]) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
+    api, profile, base = _household_master_session(arguments)
     payload = list_households(api, profile=profile, base=base)
     return _json_text(payload)
 
 
 def _handle_upsert_household(arguments: dict[str, Any]) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
+    api, profile, base = _household_master_session(arguments)
     payload = upsert_household(
         api,
         profile=profile,
@@ -649,8 +805,7 @@ def _handle_upsert_household(arguments: dict[str, Any]) -> list[types.TextConten
 
 
 def _handle_list_household_members(arguments: dict[str, Any]) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
+    api, profile, base = _household_master_session(arguments)
     payload = list_household_members(
         api,
         profile=profile,
@@ -661,8 +816,7 @@ def _handle_list_household_members(arguments: dict[str, Any]) -> list[types.Text
 
 
 def _handle_upsert_household_member(arguments: dict[str, Any]) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
+    api, profile, base = _household_master_session(arguments)
     payload = upsert_household_member(
         api,
         profile=profile,
@@ -692,6 +846,437 @@ def _handle_upsert_bank_account(arguments: dict[str, Any]) -> list[types.TextCon
         profile=profile,
         base=base,
         arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_list_household_budget_currencies(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_household_budget_currencies(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_create_household_budget_currency(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_household_budget_currency(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_list_bank_account_identifiers(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_bank_account_identifiers(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_get_bank_account_identifier(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_bank_account_identifier(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_bank_account_identifier(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_bank_account_identifier(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_bank_account_identifiers(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_bank_account_identifiers(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_bank_account_identifier(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_bank_account_identifier(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_bank_account_identifiers(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_bank_account_identifiers(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_bank_account_identifier(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_bank_account_identifier(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_bank_account_identifiers(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_bank_account_identifiers(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_list_banks(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_banks(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_get_bank(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_bank(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_create_bank(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_bank(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_create_banks(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_banks(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_patch_bank(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_bank(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_patch_banks(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_banks(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_delete_bank(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_bank(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_delete_banks(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_banks(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_accounting_subject(
+    arguments: dict[str, Any],
+    validate: Any,
+    invoke: Any,
+) -> list[types.TextContent]:
+    profile, base_arg = _accounting_subjects.prepare_request(arguments, validate)
+    api, base = get_session(profile, base_arg)
+    payload = invoke(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_list_accounting_subjects(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_list_arguments,
+        list_accounting_subjects,
+    )
+
+
+def _handle_get_accounting_subject(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_get,
+        get_accounting_subject,
+    )
+
+
+def _handle_create_accounting_subject(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_create,
+        create_accounting_subject,
+    )
+
+
+def _handle_create_accounting_subjects(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_batch_create,
+        create_accounting_subjects,
+    )
+
+
+def _handle_patch_accounting_subject(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_patch,
+        patch_accounting_subject,
+    )
+
+
+def _handle_patch_accounting_subjects(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_batch_patch,
+        patch_accounting_subjects,
+    )
+
+
+def _handle_delete_accounting_subject(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_delete,
+        delete_accounting_subject,
+    )
+
+
+def _handle_delete_accounting_subjects(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _accounting_subjects.validate_batch_delete,
+        delete_accounting_subjects,
+    )
+
+
+def _handle_get_household_accounting_subject(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _households.validate_household_id_argument,
+        get_household_accounting_subject,
+    )
+
+
+def _handle_get_household_member_accounting_subject(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _households.validate_household_member_id_argument,
+        get_household_member_accounting_subject,
+    )
+
+
+def _handle_link_household_member_accounting_subject(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _households.validate_link_household_member_accounting_subject,
+        link_household_member_accounting_subject,
+    )
+
+
+def _handle_unlink_household_member_accounting_subject(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_accounting_subject(
+        arguments,
+        _households.validate_household_member_id_argument,
+        unlink_household_member_accounting_subject,
+    )
+
+
+def _handle_list_payment_instruments(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_payment_instruments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_get_payment_instrument(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_payment_instrument(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_payment_instrument(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_payment_instrument(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_payment_instruments(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_payment_instruments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_payment_instrument(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_payment_instrument(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_payment_instruments(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_payment_instruments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_payment_instrument(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_payment_instrument(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_payment_instruments(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_payment_instruments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_list_payment_means_fund_assignments(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_payment_means_fund_assignments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_get_payment_means_fund_assignment(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_payment_means_fund_assignment(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_payment_means_fund_assignment(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_payment_means_fund_assignment(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_create_payment_means_fund_assignments(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_payment_means_fund_assignments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_payment_means_fund_assignment(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_payment_means_fund_assignment(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_payment_means_fund_assignments(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_payment_means_fund_assignments(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_payment_means_fund_assignment(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_payment_means_fund_assignment(
+        api, profile=profile, base=base, arguments=arguments
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_payment_means_fund_assignments(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_payment_means_fund_assignments(
+        api, profile=profile, base=base, arguments=arguments
     )
     return _json_text(payload)
 
@@ -856,6 +1441,213 @@ def _handle_put_transaction(arguments: dict[str, Any]) -> list[types.TextContent
         arguments=arguments,
     )
     return _json_text(payload)
+
+
+def _handle_put_transactions(arguments: dict[str, Any]) -> list[types.TextContent]:
+    # D-03/D-05: batch validation before session resolve
+    validate_put_transactions_arguments(arguments)
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = put_transactions(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_put_transaction_lines(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = put_transaction_lines(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_get_transaction_lines(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_transaction_lines(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_get_transaction(arguments: dict[str, Any]) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_transaction(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_create_expense_settlement(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = create_expense_settlement(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_get_expense_settlement(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_expense_settlement(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_patch_expense_settlement(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = patch_expense_settlement(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_delete_expense_settlement(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = delete_expense_settlement(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_list_expense_settlements(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = list_expense_settlements(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_get_line_settlement_state(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
+    api, base = get_session(profile, arguments.get("base"))
+    payload = get_line_settlement_state(
+        api,
+        profile=profile,
+        base=base,
+        arguments=arguments,
+    )
+    return _json_text(payload)
+
+
+def _handle_internal_transfer_match(
+    arguments: dict[str, Any],
+    validate: Any,
+    invoke: Any,
+) -> list[types.TextContent]:
+    profile, base_arg = _internal_transfer_matches.prepare_request(
+        arguments, validate
+    )
+    api, base = get_session(profile, base_arg)
+    payload = invoke(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_list_internal_transfer_matches(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_list_arguments,
+        list_internal_transfer_matches,
+    )
+
+
+def _handle_get_internal_transfer_match(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_match_id,
+        get_internal_transfer_match,
+    )
+
+
+def _handle_create_internal_transfer_match(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_noop,
+        create_internal_transfer_match,
+    )
+
+
+def _handle_create_internal_transfer_matches(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_batch_create,
+        create_internal_transfer_matches,
+    )
+
+
+def _handle_delete_internal_transfer_match(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_match_id,
+        delete_internal_transfer_match,
+    )
+
+
+def _handle_delete_internal_transfer_matches(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_internal_transfer_match(
+        arguments,
+        _internal_transfer_matches.validate_batch_delete,
+        delete_internal_transfer_matches,
+    )
 
 
 def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -1087,6 +1879,7 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
         provider=arguments.get("provider"),
         description=arguments.get("description"),
         contains=arguments.get("contains"),
+        bank_account_id=arguments.get("bank_account_id"),
     )
     rows = fetch_rows(api, args)
     group_by = arguments.get("group_by")
@@ -1144,7 +1937,13 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
                     "expense_owner": r.expense_owner,
                     "fund_id": r.fund_id,
                     "provider": r.provider,
+                    "bank_account_id": r.bank_account_id,
                     "description": r.description,
+                    "currency": r.currency,
+                    "budget_currency": r.budget_currency,
+                    "planned_rate": r.planned_rate,
+                    "posted_amount": r.posted_amount,
+                    "posted_currency": r.posted_currency,
                 }
                 for r in rows
             ],
@@ -1205,6 +2004,147 @@ PROFILE_SCHEMA = {
 BASE_SCHEMA = {
     "type": "string",
     "description": "URL API (по умолчанию FINANCE_API_BASE или скан 8000–8010)",
+}
+
+_FIN369_PROFILE_SCHEMA = {
+    "type": "string",
+    "description": "Профиль данных; отсутствие ключа — значение сессии, иначе prod",
+}
+
+_FIN369_BASE_SCHEMA = {
+    "type": "string",
+    "description": "URL API; отсутствие ключа — из сессии",
+}
+
+_NULLABLE_STR_SCHEMA = {"type": ["string", "null"]}
+
+_PUT_TRANSACTION_BODY_PROPERTIES = dict(
+    _put_transaction.BODY_FIELD_SCHEMA_PROPERTIES
+)
+
+_PUT_TRANSACTIONS_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "transaction_id": {
+            "type": "string",
+            "description": "UUID операции",
+        },
+        **_PUT_TRANSACTION_BODY_PROPERTIES,
+    },
+    "additionalProperties": False,
+}
+
+_INSTRUMENT_CREATE_ITEM_PROPERTIES = {
+    "bank_account_id": {"type": "string"},
+    "display_name": {"type": "string"},
+    "instrument_type": {"type": "string"},
+    "payment_network": _NULLABLE_STR_SCHEMA,
+    "settlement_class": _NULLABLE_STR_SCHEMA,
+    "pan_last4": _NULLABLE_STR_SCHEMA,
+    "holder_id": _NULLABLE_STR_SCHEMA,
+    "valid_from": _NULLABLE_STR_SCHEMA,
+    "valid_to": _NULLABLE_STR_SCHEMA,
+    "issuer_expiry": _NULLABLE_STR_SCHEMA,
+}
+
+_INSTRUMENT_CREATE_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": _INSTRUMENT_CREATE_ITEM_PROPERTIES,
+    "required": ["bank_account_id", "display_name", "instrument_type"],
+    "additionalProperties": False,
+}
+
+_INSTRUMENT_PATCH_ITEM_PROPERTIES = {
+    "display_name": {"type": "string"},
+    "payment_network": _NULLABLE_STR_SCHEMA,
+    "settlement_class": _NULLABLE_STR_SCHEMA,
+    "pan_last4": _NULLABLE_STR_SCHEMA,
+    "holder_id": _NULLABLE_STR_SCHEMA,
+    "valid_from": _NULLABLE_STR_SCHEMA,
+    "valid_to": _NULLABLE_STR_SCHEMA,
+    "issuer_expiry": _NULLABLE_STR_SCHEMA,
+}
+
+_INSTRUMENT_PATCH_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        **_INSTRUMENT_PATCH_ITEM_PROPERTIES,
+    },
+    "required": ["id"],
+    "additionalProperties": False,
+}
+
+_IDENTIFIER_CREATE_ITEM_PROPERTIES = {
+    "bank_account_id": {"type": "string"},
+    "identifier_type": {"type": "string"},
+    "value": {"type": "string"},
+}
+
+_IDENTIFIER_CREATE_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": _IDENTIFIER_CREATE_ITEM_PROPERTIES,
+    "required": ["bank_account_id", "identifier_type", "value"],
+    "additionalProperties": False,
+}
+
+_IDENTIFIER_PATCH_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "value": {"type": "string"},
+    },
+    "required": ["id", "value"],
+    "additionalProperties": False,
+}
+
+_FIN351_PROFILE_SCHEMA = {
+    "type": "string",
+    "description": "Профиль данных; отсутствие ключа означает prod",
+}
+
+_FIN366_PROFILE_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "Профиль данных; отсутствие ключа — prod",
+}
+
+_FIN366_BASE_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "URL API; отсутствие ключа — из сессии",
+}
+
+_ACCOUNTING_SUBJECT_CREATE_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject_type": {"type": ["string", "null"]},
+        "display_name": {"type": ["string", "null"]},
+        "household_id": {"type": ["string", "null"]},
+    },
+    "additionalProperties": False,
+}
+
+_ACCOUNTING_SUBJECT_PATCH_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": ["string", "null"]},
+        "display_name": {"type": ["string", "null"]},
+    },
+    "additionalProperties": False,
+}
+
+_FIN366_TOOL_PROPERTIES = {
+    "profile": _FIN366_PROFILE_SCHEMA,
+    "base": _FIN366_BASE_SCHEMA,
+}
+
+_FIN351_SIDES_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "debit_line_ids": {"type": "array", "items": {"type": "string"}},
+        "credit_line_ids": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["debit_line_ids", "credit_line_ids"],
+    "additionalProperties": False,
 }
 
 DELETE_FILTER_SCHEMA = {
@@ -1387,7 +2327,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="verify_month",
             description=(
-                "Verify месяца: MC from_17th, classification-summary, readiness (без import/close)."
+                "Verify месяца: MC from_17th, classification-summary, readiness "
+                "(без import/close). Предупреждение об отсутствии фонда (FIN-329)."
             ),
             inputSchema={
                 "type": "object",
@@ -1458,6 +2399,7 @@ async def list_tools() -> list[types.Tool]:
             name="query_plan_fact",
             description=(
                 "План/факт по статье бюджета (GET /budget/plan-actual). "
+                "Элемент months: период и валюта строки HTTP (FIN-336). "
                 "При not-found/ambiguous article — enriched error с кандидатами "
                 "(budget_item_id, категория) и подсказками уточнения (FIN-122)."
             ),
@@ -1572,27 +2514,32 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="list_households",
             description=(
-                "Список домохозяйств профиля (FIN-240): GET /api/v1/households."
+                "Список домохозяйств профиля (FIN-240 / FIN-369): "
+                "GET /api/v1/households. "
+                "Каждый элемент содержит accounting_subject (объект или JSON null)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
+                    "profile": _FIN369_PROFILE_SCHEMA,
+                    "base": _FIN369_BASE_SCHEMA,
                 },
             },
         ),
         types.Tool(
             name="upsert_household",
             description=(
-                "Upsert домохозяйства (FIN-240): PUT /api/v1/households/{id}. "
-                "Optional is_active: omit = keep/default API."
+                "Upsert домохозяйства (FIN-240 / FIN-369): "
+                "PUT /api/v1/households/{id}. "
+                "Optional is_active: omit = keep/default API. "
+                "Ответ содержит accounting_subject (объект или JSON null). "
+                "Ключи accounting_subject и accounting_subject_id не принимаются."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
+                    "profile": _FIN369_PROFILE_SCHEMA,
+                    "base": _FIN369_BASE_SCHEMA,
                     "id": {"type": "string", "description": "Household id (path)"},
                     "name": {"type": "string"},
                     "is_active": {
@@ -1601,19 +2548,21 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["id", "name"],
+                "additionalProperties": False,
             },
         ),
         types.Tool(
             name="list_household_members",
             description=(
-                "Список членов домохозяйства (FIN-240): "
-                "GET /api/v1/households/{id}/members."
+                "Список членов домохозяйства (FIN-240 / FIN-369): "
+                "GET /api/v1/households/{id}/members. "
+                "Каждый элемент содержит accounting_subject (объект или JSON null)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
+                    "profile": _FIN369_PROFILE_SCHEMA,
+                    "base": _FIN369_BASE_SCHEMA,
                     "household_id": {"type": "string"},
                 },
                 "required": ["household_id"],
@@ -1622,14 +2571,17 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="upsert_household_member",
             description=(
-                "Upsert члена домохозяйства (FIN-240): "
-                "PUT /api/v1/households/{id}/members/{member_id}."
+                "Upsert члена домохозяйства (FIN-240 / FIN-369): "
+                "PUT /api/v1/households/{id}/members/{member_id}. "
+                "Optional display_name: omit не включает ключ в HTTP. "
+                "Ответ содержит accounting_subject (объект или JSON null). "
+                "Ключи accounting_subject и accounting_subject_id не принимаются."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
+                    "profile": _FIN369_PROFILE_SCHEMA,
+                    "base": _FIN369_BASE_SCHEMA,
                     "household_id": {"type": "string"},
                     "member_id": {"type": "string"},
                     "display_name": {"type": "string"},
@@ -1638,14 +2590,17 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Optional; omit = keep/default",
                     },
                 },
-                "required": ["household_id", "member_id", "display_name"],
+                "required": ["household_id", "member_id"],
+                "additionalProperties": False,
             },
         ),
         types.Tool(
             name="list_bank_accounts",
             description=(
-                "Список банковских счетов домохозяйства (FIN-240): "
-                "GET /api/v1/households/{id}/bank-accounts."
+                "Список банковских счетов домохозяйства "
+                "(FIN-240 / FIN-293 / FIN-321 / FIN-341): "
+                "GET /api/v1/households/{id}/bank-accounts. "
+                "Rows include bank_id, identifiers, and currency."
             ),
             inputSchema={
                 "type": "object",
@@ -1660,9 +2615,14 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="upsert_bank_account",
             description=(
-                "Upsert банковского счёта (FIN-240): "
+                "Upsert банковского счёта "
+                "(FIN-240 / FIN-293 / FIN-321 / FIN-341): "
                 "PUT /api/v1/households/{id}/bank-accounts/{account_id}. "
-                "Optional nullable: holder_member_id, valid_to — omit = keep, null = clear."
+                "Required bank_id (UUID). "
+                "Optional currency string: omit = keep; HTTP rejects create without it; "
+                "null not accepted. "
+                "Optional nullable: holder_member_id, valid_to — omit = keep, null = clear. "
+                "identifiers read-only; iban/account_number not accepted."
             ),
             inputSchema={
                 "type": "object",
@@ -1674,6 +2634,10 @@ async def list_tools() -> list[types.Tool]:
                     "provider": {"type": "string"},
                     "display_name": {"type": "string"},
                     "valid_from": {"type": "string", "description": "YYYY-MM"},
+                    "bank_id": {
+                        "type": "string",
+                        "description": "Required bank UUID (FIN-292 / FIN-293)",
+                    },
                     "holder_member_id": {
                         "type": ["string", "null"],
                         "description": "Optional; omit = keep, null = clear",
@@ -1684,6 +2648,14 @@ async def list_tools() -> list[types.Tool]:
                         "type": ["string", "null"],
                         "description": "Optional YYYY-MM; omit = keep, null = clear",
                     },
+                    "currency": {
+                        "type": "string",
+                        "description": (
+                            "Optional account currency (FIN-341). "
+                            "Omit = keep on update. Copied as-is; HTTP normalizes. "
+                            "JSON null not accepted."
+                        ),
+                    },
                 },
                 "required": [
                     "household_id",
@@ -1691,7 +2663,856 @@ async def list_tools() -> list[types.Tool]:
                     "provider",
                     "display_name",
                     "valid_from",
+                    "bank_id",
                 ],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_household_budget_currencies",
+            description=(
+                "Список истории валюты бюджета домохозяйства (FIN-332): "
+                "GET /api/v1/households/{household_id}/budget-currencies."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                },
+                "required": ["household_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_household_budget_currency",
+            description=(
+                "Добавление записи истории валюты бюджета (FIN-332): "
+                "POST /api/v1/households/{household_id}/budget-currencies. "
+                "Body: valid_from + currency (insert-only)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "household_id": {"type": "string"},
+                    "valid_from": {
+                        "type": "string",
+                        "description": "YYYY-MM or YYYY-MM-DD with day 01",
+                    },
+                    "currency": {"type": "string", "description": "Currency code"},
+                },
+                "required": ["household_id", "valid_from", "currency"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_bank_account_identifiers",
+            description=(
+                "Список идентификаторов банковских счетов (FIN-321): "
+                "GET /api/v1/bank-account-identifiers. "
+                "Optional filter bank_account_id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_account_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_bank_account_identifier",
+            description=(
+                "Чтение идентификатора банковского счёта (FIN-321): "
+                "GET /api/v1/bank-account-identifiers/{identifier_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "identifier_id": {"type": "string"},
+                },
+                "required": ["identifier_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_bank_account_identifier",
+            description=(
+                "Создание идентификатора банковского счёта (FIN-321): "
+                "POST /api/v1/bank-account-identifiers. Id выдаёт API."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    **_IDENTIFIER_CREATE_ITEM_PROPERTIES,
+                },
+                "required": ["bank_account_id", "identifier_type", "value"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_bank_account_identifiers",
+            description=(
+                "Пакетное создание идентификаторов банковских счетов (FIN-321): "
+                "POST /api/v1/bank-account-identifiers/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_account_identifiers": {
+                        "type": "array",
+                        "items": _IDENTIFIER_CREATE_ITEM_SCHEMA,
+                    },
+                },
+                "required": ["bank_account_identifiers"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_bank_account_identifier",
+            description=(
+                "Изменение значения идентификатора (FIN-321): "
+                "PATCH /api/v1/bank-account-identifiers/{identifier_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "identifier_id": {"type": "string"},
+                    "value": {"type": "string"},
+                },
+                "required": ["identifier_id", "value"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_bank_account_identifiers",
+            description=(
+                "Пакетное изменение значения идентификаторов (FIN-321): "
+                "PATCH /api/v1/bank-account-identifiers."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_account_identifiers": {
+                        "type": "array",
+                        "items": _IDENTIFIER_PATCH_ITEM_SCHEMA,
+                    },
+                },
+                "required": ["bank_account_identifiers"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_bank_account_identifier",
+            description=(
+                "Удаление идентификатора банковского счёта (FIN-321): "
+                "DELETE /api/v1/bank-account-identifiers/{identifier_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "identifier_id": {"type": "string"},
+                },
+                "required": ["identifier_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_bank_account_identifiers",
+            description=(
+                "Пакетное удаление идентификаторов банковских счетов (FIN-321): "
+                "DELETE /api/v1/bank-account-identifiers."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "ids": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["ids"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_banks",
+            description=(
+                "Список банков профиля (FIN-293): GET /api/v1/banks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                },
+            },
+        ),
+        types.Tool(
+            name="get_bank",
+            description=(
+                "Чтение банка по id (FIN-293): GET /api/v1/banks/{bank_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_id": {"type": "string"},
+                },
+                "required": ["bank_id"],
+            },
+        ),
+        types.Tool(
+            name="create_bank",
+            description=(
+                "Создание банка (FIN-293): POST /api/v1/banks. "
+                "Id выдаёт API; bic optional (null = нет кода)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "display_name": {"type": "string"},
+                    "bic": {
+                        "type": ["string", "null"],
+                        "description": "Optional; omit or null = no BIC",
+                    },
+                },
+                "required": ["display_name"],
+            },
+        ),
+        types.Tool(
+            name="create_banks",
+            description=(
+                "Пакетное создание банков (FIN-293): POST /api/v1/banks/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "banks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "display_name": {"type": "string"},
+                                "bic": {"type": ["string", "null"]},
+                            },
+                        },
+                    },
+                },
+                "required": ["banks"],
+            },
+        ),
+        types.Tool(
+            name="patch_bank",
+            description=(
+                "Частичное обновление банка (FIN-293): "
+                "PATCH /api/v1/banks/{bank_id}. At least one of display_name, bic."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_id": {"type": "string"},
+                    "display_name": {"type": "string"},
+                    "bic": {
+                        "type": ["string", "null"],
+                        "description": "null clears BIC",
+                    },
+                },
+                "required": ["bank_id"],
+            },
+        ),
+        types.Tool(
+            name="patch_banks",
+            description=(
+                "Пакетное частичное обновление банков (FIN-293): PATCH /api/v1/banks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "banks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "display_name": {"type": "string"},
+                                "bic": {"type": ["string", "null"]},
+                            },
+                            "required": ["id"],
+                        },
+                    },
+                },
+                "required": ["banks"],
+            },
+        ),
+        types.Tool(
+            name="delete_bank",
+            description=(
+                "Удаление банка (FIN-293): DELETE /api/v1/banks/{bank_id}. "
+                "HTTP 204 on success; bank_in_use if referenced."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_id": {"type": "string"},
+                },
+                "required": ["bank_id"],
+            },
+        ),
+        types.Tool(
+            name="delete_banks",
+            description=(
+                "Пакетное удаление банков (FIN-293): DELETE /api/v1/banks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["ids"],
+            },
+        ),
+        types.Tool(
+            name="list_accounting_subjects",
+            description=(
+                "Список субъектов учёта (FIN-366): GET /api/v1/accounting-subjects. "
+                "Optional filter subject_type."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "subject_type": {
+                        "type": ["string", "null"],
+                        "description": "person, organization или group",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_accounting_subject",
+            description=(
+                "Чтение субъекта учёта (FIN-366): "
+                "GET /api/v1/accounting-subjects/{subject_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "subject_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_accounting_subject",
+            description=(
+                "Создание субъекта учёта (FIN-366): POST /api/v1/accounting-subjects."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "subject_type": {"type": ["string", "null"]},
+                    "display_name": {"type": ["string", "null"]},
+                    "household_id": {"type": ["string", "null"]},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_accounting_subjects",
+            description=(
+                "Пакетное создание субъектов учёта (FIN-366): "
+                "POST /api/v1/accounting-subjects/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "accounting_subjects": {
+                        "type": ["array", "null"],
+                        "items": _ACCOUNTING_SUBJECT_CREATE_ITEM_SCHEMA,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_accounting_subject",
+            description=(
+                "Частичное обновление субъекта учёта (FIN-366): "
+                "PATCH /api/v1/accounting-subjects/{subject_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "subject_id": {"type": "string"},
+                    "display_name": {"type": ["string", "null"]},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_accounting_subjects",
+            description=(
+                "Пакетное частичное обновление субъектов учёта (FIN-366): "
+                "PATCH /api/v1/accounting-subjects."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "accounting_subjects": {
+                        "type": ["array", "null"],
+                        "items": _ACCOUNTING_SUBJECT_PATCH_ITEM_SCHEMA,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_accounting_subject",
+            description=(
+                "Удаление субъекта учёта (FIN-366): "
+                "DELETE /api/v1/accounting-subjects/{subject_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "subject_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_accounting_subjects",
+            description=(
+                "Пакетное удаление субъектов учёта (FIN-366): "
+                "DELETE /api/v1/accounting-subjects."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "ids": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_household_accounting_subject",
+            description=(
+                "Чтение субъекта учёта типа group по домохозяйству (FIN-366): "
+                "GET /api/v1/households/{household_id}/accounting-subject."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "household_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_household_member_accounting_subject",
+            description=(
+                "Чтение субъекта учёта по члену домохозяйства (FIN-366): "
+                "GET /api/v1/household-members/{household_member_id}/accounting-subject."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "household_member_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="link_household_member_accounting_subject",
+            description=(
+                "Установление соответствия члена и субъекта person (FIN-366): "
+                "POST .../accounting-subject-link."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "household_member_id": {"type": "string"},
+                    "subject_id": {"type": ["string", "null"]},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="unlink_household_member_accounting_subject",
+            description=(
+                "Снятие соответствия члена домохозяйства (FIN-366): "
+                "DELETE .../accounting-subject-link."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN366_TOOL_PROPERTIES,
+                    "household_member_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_payment_instruments",
+            description=(
+                "Список платёжных инструментов (FIN-286, FIN-313): "
+                "GET /api/v1/payment-instruments. "
+                "Optional filters bank_account_id / household_id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "bank_account_id": {"type": "string"},
+                    "household_id": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_payment_instrument",
+            description=(
+                "Чтение платёжного инструмента (FIN-286, FIN-313): "
+                "GET /api/v1/payment-instruments/{instrument_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "instrument_id": {"type": "string"},
+                },
+                "required": ["instrument_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_payment_instrument",
+            description=(
+                "Создание платёжного инструмента (FIN-286, FIN-313): "
+                "POST /api/v1/payment-instruments. Id выдаёт API."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    **_INSTRUMENT_CREATE_ITEM_PROPERTIES,
+                },
+                "required": [
+                    "bank_account_id",
+                    "display_name",
+                    "instrument_type",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_payment_instruments",
+            description=(
+                "Пакетное создание платёжных инструментов (FIN-286, FIN-313): "
+                "POST /api/v1/payment-instruments/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "payment_instruments": {
+                        "type": "array",
+                        "items": _INSTRUMENT_CREATE_ITEM_SCHEMA,
+                    },
+                },
+                "required": ["payment_instruments"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_payment_instrument",
+            description=(
+                "Частичное обновление платёжного инструмента (FIN-286, FIN-313): "
+                "PATCH /api/v1/payment-instruments/{instrument_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "instrument_id": {"type": "string"},
+                    **_INSTRUMENT_PATCH_ITEM_PROPERTIES,
+                },
+                "required": ["instrument_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_payment_instruments",
+            description=(
+                "Пакетное частичное обновление платёжных инструментов "
+                "(FIN-286, FIN-313): PATCH /api/v1/payment-instruments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "payment_instruments": {
+                        "type": "array",
+                        "items": _INSTRUMENT_PATCH_ITEM_SCHEMA,
+                    },
+                },
+                "required": ["payment_instruments"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_payment_instrument",
+            description=(
+                "Удаление платёжного инструмента (FIN-286): "
+                "DELETE /api/v1/payment-instruments/{instrument_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "instrument_id": {"type": "string"},
+                },
+                "required": ["instrument_id"],
+            },
+        ),
+        types.Tool(
+            name="delete_payment_instruments",
+            description=(
+                "Пакетное удаление платёжных инструментов (FIN-286): "
+                "DELETE /api/v1/payment-instruments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["ids"],
+            },
+        ),
+        types.Tool(
+            name="list_payment_means_fund_assignments",
+            description=(
+                "Список сопоставлений средства с фондом (FIN-286): "
+                "GET /api/v1/payment-means-fund-assignments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "means_type": {"type": "string"},
+                    "means_id": {"type": "string"},
+                    "fund_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="get_payment_means_fund_assignment",
+            description=(
+                "Чтение сопоставления (FIN-286): "
+                "GET /api/v1/payment-means-fund-assignments/{assignment_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "assignment_id": {"type": "string"},
+                },
+                "required": ["assignment_id"],
+            },
+        ),
+        types.Tool(
+            name="create_payment_means_fund_assignment",
+            description=(
+                "Создание сопоставления средства с фондом (FIN-286): "
+                "POST /api/v1/payment-means-fund-assignments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "means_type": {"type": "string"},
+                    "means_id": {"type": "string"},
+                    "fund_id": {"type": "string"},
+                    "valid_from": {"type": "string"},
+                    "valid_to": {"type": ["string", "null"]},
+                },
+                "required": ["means_type", "means_id", "fund_id", "valid_from"],
+            },
+        ),
+        types.Tool(
+            name="create_payment_means_fund_assignments",
+            description=(
+                "Пакетное создание сопоставлений (FIN-286): "
+                "POST /api/v1/payment-means-fund-assignments/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "payment_means_fund_assignments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "means_type": {"type": "string"},
+                                "means_id": {"type": "string"},
+                                "fund_id": {"type": "string"},
+                                "valid_from": {"type": "string"},
+                                "valid_to": {"type": ["string", "null"]},
+                            },
+                            "required": [
+                                "means_type",
+                                "means_id",
+                                "fund_id",
+                                "valid_from",
+                            ],
+                        },
+                    },
+                },
+                "required": ["payment_means_fund_assignments"],
+            },
+        ),
+        types.Tool(
+            name="patch_payment_means_fund_assignment",
+            description=(
+                "Частичное обновление интервала сопоставления (FIN-286): "
+                "PATCH /api/v1/payment-means-fund-assignments/{assignment_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "assignment_id": {"type": "string"},
+                    "valid_from": {"type": "string"},
+                    "valid_to": {"type": ["string", "null"]},
+                },
+                "required": ["assignment_id"],
+            },
+        ),
+        types.Tool(
+            name="patch_payment_means_fund_assignments",
+            description=(
+                "Пакетное частичное обновление сопоставлений (FIN-286): "
+                "PATCH /api/v1/payment-means-fund-assignments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "payment_means_fund_assignments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "valid_from": {"type": "string"},
+                                "valid_to": {"type": ["string", "null"]},
+                            },
+                            "required": ["id"],
+                        },
+                    },
+                },
+                "required": ["payment_means_fund_assignments"],
+            },
+        ),
+        types.Tool(
+            name="delete_payment_means_fund_assignment",
+            description=(
+                "Удаление сопоставления (FIN-286): "
+                "DELETE /api/v1/payment-means-fund-assignments/{assignment_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "assignment_id": {"type": "string"},
+                },
+                "required": ["assignment_id"],
+            },
+        ),
+        types.Tool(
+            name="delete_payment_means_fund_assignments",
+            description=(
+                "Пакетное удаление сопоставлений (FIN-286): "
+                "DELETE /api/v1/payment-means-fund-assignments."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["ids"],
             },
         ),
         types.Tool(
@@ -1979,8 +3800,10 @@ async def list_tools() -> list[types.Tool]:
             name="query_transactions",
             description=(
                 "Выборка транзакций (GET /api/v1/transactions) с фильтрами учётного периода, "
-                "категории и group-by month. Неагрегированные rows: id, transaction_type, "
-                "expense_owner (FIN-211 / FIN-241)."
+                "категории, bank_account_id и group-by month. Неагрегированные rows: id, "
+                "transaction_type, expense_owner, fund_id, bank_account_id, currency, "
+                "budget_currency, planned_rate, posted_amount, posted_currency "
+                "(FIN-211 / FIN-241 / FIN-336 / FIN-347 / FIN-359)."
             ),
             inputSchema={
                 "type": "object",
@@ -2007,6 +3830,12 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Alias для category",
                     },
                     "provider": {"type": "string"},
+                    "bank_account_id": {
+                        "type": "string",
+                        "description": (
+                            "Фильтр по банковскому счёту; sentinel __empty__ — операции без счёта"
+                        ),
+                    },
                     "description": {"type": "string"},
                     "contains": {
                         "type": "array",
@@ -2057,7 +3886,10 @@ async def list_tools() -> list[types.Tool]:
                 "(FIN-241; owner-only OK). category_source не передавать. "
                 "Omit expense_owner = не менять; null/empty/whitespace = clear на API. "
                 "reconciliation_note — доп. поле; note-only запрещён. "
-                "Для полного merge-patch (в т.ч. fund_id/project) — put_transaction (FIN-260)."
+                "Ответ включает posted_amount / posted_currency (FIN-347) и "
+                "bank_account_id (FIN-359); эти ключи во входе не принимаются. "
+                "Для полного merge-patch (в т.ч. fund_id/project/bank_account_id) — "
+                "put_transaction (FIN-260)."
             ),
             inputSchema={
                 "type": "object",
@@ -2097,6 +3929,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["transaction_id"],
+                "additionalProperties": False,
             },
         ),
         types.Tool(
@@ -2106,7 +3939,9 @@ async def list_tools() -> list[types.Tool]:
                 "PATCH /api/v1/transactions/{id}. "
                 "Поля тела (omit≠null): transaction_category, category_source, "
                 "reconciliation_note, transaction_type, expense_owner, project, "
-                "project_source, fund_id. Хотя бы одно поле тела обязательно."
+                "project_source, fund_id, bank_account_id. Хотя бы одно поле тела обязательно. "
+                "Ответ включает posted_amount / posted_currency (FIN-347) и "
+                "bank_account_id (FIN-359); posted_* во входе не принимаются."
             ),
             inputSchema={
                 "type": "object",
@@ -2117,37 +3952,422 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "UUID операции",
                     },
-                    "transaction_category": {
-                        "type": ["string", "null"],
-                    },
-                    "category_source": {
-                        "type": ["string", "null"],
-                    },
-                    "reconciliation_note": {
-                        "type": ["string", "null"],
-                    },
-                    "transaction_type": {
-                        "type": ["string", "null"],
-                    },
-                    "expense_owner": {
-                        "type": ["string", "null"],
-                    },
-                    "project": {
-                        "type": ["string", "null"],
-                    },
-                    "project_source": {
-                        "type": ["string", "null"],
-                    },
-                    "fund_id": {
-                        "type": ["string", "null"],
-                        "description": "Assign fund or null/empty to clear (API)",
-                    },
+                    **_PUT_TRANSACTION_BODY_PROPERTIES,
                     "allow_closed": {
                         "type": "boolean",
                         "description": "Bypass closed-period guard (default false)",
                     },
                 },
                 "required": ["transaction_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="put_transactions",
+            description=(
+                "Пакетный canonical merge-patch операций (FIN-265): "
+                "последовательные PATCH /api/v1/transactions/{id} с тем же набором "
+                "полей тела, что у put_transaction. Общий allow_closed на пакет. "
+                "Частичный успех: ошибка элемента не останавливает остальные; "
+                "верхний ok:true при обработанном пакете."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": (
+                            "Bypass closed-period guard for all items "
+                            "(default false)"
+                        ),
+                    },
+                    "items": {
+                        "type": "array",
+                        "description": "Non-empty list of per-transaction patches",
+                        "items": _PUT_TRANSACTIONS_ITEM_SCHEMA,
+                    },
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="put_transaction_lines",
+            description=(
+                "Полная замена набора позиций операции (FIN-270 / FIN-272): "
+                "PUT /api/v1/transactions/{id}/lines. "
+                "Тело: lines[] с line_no, amount, assignment; опционально id позиции. "
+                "Разделение = N>1 позиций при неизменной сумме заголовка."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "transaction_id": {
+                        "type": "string",
+                        "description": "UUID операции",
+                    },
+                    "lines": {
+                        "type": "array",
+                        "description": (
+                            "Полный набор позиций (FIN-272): "
+                            "id?, line_no, amount, assignment"
+                        ),
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "id": {"type": "string"},
+                                "line_no": {"type": "integer"},
+                                "amount": {"type": "string"},
+                                "assignment": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {"type": ["string", "null"]},
+                                        "category": {"type": ["string", "null"]},
+                                        "project": {"type": ["string", "null"]},
+                                        "fund_id": {"type": ["string", "null"]},
+                                        "source": {"type": "string"},
+                                        "state": {"type": "string"},
+                                        "note": {"type": ["string", "null"]},
+                                    },
+                                },
+                            },
+                            "required": ["line_no", "amount", "assignment"],
+                        },
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": ["transaction_id", "lines"],
+            },
+        ),
+        types.Tool(
+            name="get_transaction_lines",
+            description=(
+                "Чтение позиций операции (FIN-270 / FIN-272): "
+                "GET /api/v1/transactions/{id}/lines."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "transaction_id": {
+                        "type": "string",
+                        "description": "UUID операции",
+                    },
+                },
+                "required": ["transaction_id"],
+            },
+        ),
+        types.Tool(
+            name="get_transaction",
+            description=(
+                "Чтение операции по id вместе с позициями (FIN-270 / FIN-272): "
+                "GET /api/v1/transactions/{id}. "
+                "Заголовок включает bank_account_id (FIN-359)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "transaction_id": {
+                        "type": "string",
+                        "description": "UUID операции",
+                    },
+                },
+                "required": ["transaction_id"],
+            },
+        ),
+        types.Tool(
+            name="create_expense_settlement",
+            description=(
+                "Создание погашения расхода (FIN-271 / FIN-273): "
+                "POST /api/v1/expense-settlements."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "compensating_line_id": {
+                        "type": "string",
+                        "description": "Позиция компенсирующего зачисления",
+                    },
+                    "expense_line_id": {
+                        "type": "string",
+                        "description": "Покрываемая позиция расхода",
+                    },
+                    "amount": {
+                        "type": "string",
+                        "description": "Абсолютная сумма погашения",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": [
+                    "compensating_line_id",
+                    "expense_line_id",
+                    "amount",
+                ],
+            },
+        ),
+        types.Tool(
+            name="get_expense_settlement",
+            description=(
+                "Чтение погашения расхода по id (FIN-271 / FIN-273): "
+                "GET /api/v1/expense-settlements/{id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "settlement_id": {
+                        "type": "string",
+                        "description": "Идентификатор погашения",
+                    },
+                },
+                "required": ["settlement_id"],
+            },
+        ),
+        types.Tool(
+            name="patch_expense_settlement",
+            description=(
+                "Изменение суммы погашения расхода (FIN-271 / FIN-273): "
+                "PATCH /api/v1/expense-settlements/{id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "settlement_id": {
+                        "type": "string",
+                        "description": "Идентификатор погашения",
+                    },
+                    "amount": {
+                        "type": "string",
+                        "description": "Новая абсолютная сумма погашения",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": ["settlement_id", "amount"],
+            },
+        ),
+        types.Tool(
+            name="delete_expense_settlement",
+            description=(
+                "Удаление погашения расхода (FIN-271 / FIN-273): "
+                "DELETE /api/v1/expense-settlements/{id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "settlement_id": {
+                        "type": "string",
+                        "description": "Идентификатор погашения",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Bypass closed-period guard (default false)",
+                    },
+                },
+                "required": ["settlement_id"],
+            },
+        ),
+        types.Tool(
+            name="list_expense_settlements",
+            description=(
+                "Список погашений по позиции (FIN-271 / FIN-273): "
+                "GET /api/v1/expense-settlements?line_id=…"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "line_id": {
+                        "type": "string",
+                        "description": "Идентификатор позиции (любая сторона связи)",
+                    },
+                },
+                "required": ["line_id"],
+            },
+        ),
+        types.Tool(
+            name="get_line_settlement_state",
+            description=(
+                "Состояние покрытия позиции (FIN-271 / FIN-273): "
+                "GET /api/v1/transaction-lines/{line_id}/settlement-state."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "line_id": {
+                        "type": "string",
+                        "description": "Идентификатор позиции",
+                    },
+                },
+                "required": ["line_id"],
+            },
+        ),
+        types.Tool(
+            name="list_internal_transfer_matches",
+            description=(
+                "Список сопоставлений сторон внутреннего перевода (FIN-351): "
+                "GET /api/v1/internal-transfer-matches."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "line_id": {
+                        "type": "string",
+                        "description": "Фильтр по позиции; отсутствие ключа — список профиля",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_internal_transfer_match",
+            description=(
+                "Чтение сопоставления сторон внутреннего перевода (FIN-351): "
+                "GET /api/v1/internal-transfer-matches/{match_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "match_id": {
+                        "type": "string",
+                        "description": "Идентификатор сопоставления в пути",
+                    },
+                },
+                "required": ["match_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_internal_transfer_match",
+            description=(
+                "Создание сопоставления сторон внутреннего перевода (FIN-351): "
+                "POST /api/v1/internal-transfer-matches."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "debit_line_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Идентификаторы позиций стороны списания",
+                    },
+                    "credit_line_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Идентификаторы позиций стороны зачисления",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Обход закрытого учётного периода",
+                    },
+                },
+                "required": ["debit_line_ids", "credit_line_ids"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_internal_transfer_matches",
+            description=(
+                "Пакетное создание сопоставлений сторон внутреннего перевода "
+                "(FIN-351): POST /api/v1/internal-transfer-matches/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "internal_transfer_matches": {
+                        "type": "array",
+                        "items": _FIN351_SIDES_ITEM_SCHEMA,
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Обход закрытого учётного периода на весь пакет",
+                    },
+                },
+                "required": ["internal_transfer_matches"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_internal_transfer_match",
+            description=(
+                "Удаление сопоставления сторон внутреннего перевода (FIN-351): "
+                "DELETE /api/v1/internal-transfer-matches/{match_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "match_id": {
+                        "type": "string",
+                        "description": "Идентификатор сопоставления в пути",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Обход закрытого учётного периода",
+                    },
+                },
+                "required": ["match_id"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_internal_transfer_matches",
+            description=(
+                "Пакетное удаление сопоставлений сторон внутреннего перевода "
+                "(FIN-351): DELETE /api/v1/internal-transfer-matches."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "profile": _FIN351_PROFILE_SCHEMA,
+                    "base": BASE_SCHEMA,
+                    "ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Идентификаторы сопоставлений",
+                    },
+                    "allow_closed": {
+                        "type": "boolean",
+                        "description": "Обход закрытого учётного периода на весь пакет",
+                    },
+                },
+                "required": ["ids"],
+                "additionalProperties": False,
             },
         ),
         types.Tool(
@@ -2452,6 +4672,58 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "upsert_household_member": _handle_upsert_household_member,
         "list_bank_accounts": _handle_list_bank_accounts,
         "upsert_bank_account": _handle_upsert_bank_account,
+        "list_household_budget_currencies": _handle_list_household_budget_currencies,
+        "create_household_budget_currency": _handle_create_household_budget_currency,
+        "list_bank_account_identifiers": _handle_list_bank_account_identifiers,
+        "get_bank_account_identifier": _handle_get_bank_account_identifier,
+        "create_bank_account_identifier": _handle_create_bank_account_identifier,
+        "create_bank_account_identifiers": _handle_create_bank_account_identifiers,
+        "patch_bank_account_identifier": _handle_patch_bank_account_identifier,
+        "patch_bank_account_identifiers": _handle_patch_bank_account_identifiers,
+        "delete_bank_account_identifier": _handle_delete_bank_account_identifier,
+        "delete_bank_account_identifiers": _handle_delete_bank_account_identifiers,
+        "list_banks": _handle_list_banks,
+        "get_bank": _handle_get_bank,
+        "create_bank": _handle_create_bank,
+        "create_banks": _handle_create_banks,
+        "patch_bank": _handle_patch_bank,
+        "patch_banks": _handle_patch_banks,
+        "delete_bank": _handle_delete_bank,
+        "delete_banks": _handle_delete_banks,
+        "list_accounting_subjects": _handle_list_accounting_subjects,
+        "get_accounting_subject": _handle_get_accounting_subject,
+        "create_accounting_subject": _handle_create_accounting_subject,
+        "create_accounting_subjects": _handle_create_accounting_subjects,
+        "patch_accounting_subject": _handle_patch_accounting_subject,
+        "patch_accounting_subjects": _handle_patch_accounting_subjects,
+        "delete_accounting_subject": _handle_delete_accounting_subject,
+        "delete_accounting_subjects": _handle_delete_accounting_subjects,
+        "get_household_accounting_subject": _handle_get_household_accounting_subject,
+        "get_household_member_accounting_subject": (
+            _handle_get_household_member_accounting_subject
+        ),
+        "link_household_member_accounting_subject": (
+            _handle_link_household_member_accounting_subject
+        ),
+        "unlink_household_member_accounting_subject": (
+            _handle_unlink_household_member_accounting_subject
+        ),
+        "list_payment_instruments": _handle_list_payment_instruments,
+        "get_payment_instrument": _handle_get_payment_instrument,
+        "create_payment_instrument": _handle_create_payment_instrument,
+        "create_payment_instruments": _handle_create_payment_instruments,
+        "patch_payment_instrument": _handle_patch_payment_instrument,
+        "patch_payment_instruments": _handle_patch_payment_instruments,
+        "delete_payment_instrument": _handle_delete_payment_instrument,
+        "delete_payment_instruments": _handle_delete_payment_instruments,
+        "list_payment_means_fund_assignments": _handle_list_payment_means_fund_assignments,
+        "get_payment_means_fund_assignment": _handle_get_payment_means_fund_assignment,
+        "create_payment_means_fund_assignment": _handle_create_payment_means_fund_assignment,
+        "create_payment_means_fund_assignments": _handle_create_payment_means_fund_assignments,
+        "patch_payment_means_fund_assignment": _handle_patch_payment_means_fund_assignment,
+        "patch_payment_means_fund_assignments": _handle_patch_payment_means_fund_assignments,
+        "delete_payment_means_fund_assignment": _handle_delete_payment_means_fund_assignment,
+        "delete_payment_means_fund_assignments": _handle_delete_payment_means_fund_assignments,
         "list_household_funds": _handle_list_household_funds,
         "get_household_fund": _handle_get_household_fund,
         "create_household_fund": _handle_create_household_fund,
@@ -2463,6 +4735,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "put_transaction_overrides": _handle_put_transaction_overrides,
         "put_transaction_category": _handle_put_transaction_category,
         "put_transaction": _handle_put_transaction,
+        "put_transactions": _handle_put_transactions,
+        "put_transaction_lines": _handle_put_transaction_lines,
+        "get_transaction_lines": _handle_get_transaction_lines,
+        "get_transaction": _handle_get_transaction,
+        "create_expense_settlement": _handle_create_expense_settlement,
+        "get_expense_settlement": _handle_get_expense_settlement,
+        "patch_expense_settlement": _handle_patch_expense_settlement,
+        "delete_expense_settlement": _handle_delete_expense_settlement,
+        "list_expense_settlements": _handle_list_expense_settlements,
+        "get_line_settlement_state": _handle_get_line_settlement_state,
+        "list_internal_transfer_matches": _handle_list_internal_transfer_matches,
+        "get_internal_transfer_match": _handle_get_internal_transfer_match,
+        "create_internal_transfer_match": _handle_create_internal_transfer_match,
+        "create_internal_transfer_matches": _handle_create_internal_transfer_matches,
+        "delete_internal_transfer_match": _handle_delete_internal_transfer_match,
+        "delete_internal_transfer_matches": _handle_delete_internal_transfer_matches,
         "upsert_expense_project": _handle_upsert_expense_project,
         "create_category": _handle_create_category,
         "create_budget_item": _handle_create_budget_item,

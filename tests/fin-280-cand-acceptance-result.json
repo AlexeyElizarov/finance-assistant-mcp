@@ -1,0 +1,64 @@
+{
+  "commit": "db8af05",
+  "db": "C:\\Users\\haake\\AppData\\Local\\finance-planning\\finance.db",
+  "profile": "cand",
+  "transport": "TestClient+MCP modules (live :8001 carryover HTTP 500)",
+  "steps": {
+    "T1": [
+      {
+        "step": 1,
+        "actual": "settlements 90c9ac03-fcd3-42fe-8ae0-e7a670ac0096,b0f8963f-1b9f-4659-9c89-691aae8b920d; period 202603",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "ok=True; outgoing=140.0; n_proj=2; out_member={'aleksei': 140.0}",
+        "result": "PASSED"
+      },
+      {
+        "step": 3,
+        "actual": "HTTP 200; mcp_out=140.0; http_out=140.0; mcp_n=2; http_n=2",
+        "result": "PASSED"
+      }
+    ],
+    "T2": [
+      {
+        "step": 1,
+        "actual": "source=dry_run; outgoing=140.0; out_member={'aleksei': 140.0}",
+        "result": "PASSED"
+      }
+    ],
+    "T3": [
+      {
+        "step": 1,
+        "actual": "source=log; outs=[0.0, 0.0]; accounting_period=''; projections=0",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "source=none; outs=[0.0, 0.0]; accounting_period=''",
+        "result": "PASSED"
+      }
+    ],
+    "T4": [
+      {
+        "step": 1,
+        "actual": "settlement b406311f-9c63-4ab2-8145-ad81ec18eb50; baseline_out=0.0",
+        "result": "PASSED"
+      },
+      {
+        "step": 2,
+        "actual": "outgoing=0.0; baseline=0.0; settlement_in_proj=False",
+        "result": "PASSED"
+      }
+    ],
+    "T5": [
+      {
+        "step": 1,
+        "actual": "partners_out=[0.0, 0.0]; projections=0",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "failed": []
+}

@@ -29,10 +29,11 @@ from monthly_close_lib import fetch_reconciliation, parse_period
 from personal_fund_carryover import (
     _parse_attribution_block,
     compute_personal_fund_carryover,
-    compute_personal_spend,
     detect_late_advance_register_conflict,
+    empty_fund_financing_block,
     load_carryover_log,
     prev_calendar_month,
+    resolve_period_personal_spend,
 )
 
 PURCHASES_HINT = (
@@ -202,6 +203,7 @@ def materialize_carryover_from_dry_run(
             "advance_deduction": advance_deduction,
             "starting_fund": starting_fund,
             "available_personal_fund": starting_fund,
+            "outgoing_financing": round_money(float(row.get("outgoing_financing", 0.0))),
         }
         overrun_flags[pid] = bool(row.get("overrun_requires_discussion"))
     return {
@@ -298,7 +300,7 @@ def build_c24_attribution_notes(
     Build C24 attribution notes and unmapped spend refs (D-05).
 
     :param mapping: Contour mapping document
-    :param spend_warnings: Warnings from ``compute_personal_spend``
+    :param spend_warnings: Warnings from the personal-spend pipeline
     :return: ``notes`` and ``unattributed_spend_refs``
     """
     notes: list[str] = []
@@ -417,6 +419,8 @@ def compute_money_check_report(
     log_computed_at: str | None = None
     carryover_partners: dict[str, dict[str, Any]] = {}
     overrun_flags: dict[str, bool] = {}
+    fund_financing = empty_fund_financing_block("")
+    financing_warnings: list[str] = []
 
     if matched_run is not None:
         block = materialize_carryover_from_log(
@@ -444,6 +448,15 @@ def compute_money_check_report(
         carryover_source = "dry_run"
         carryover_partners = block["partners"]
         overrun_flags = block["overrun_flags"]
+        raw_block = dry_payload.get("fund_financing")
+        if isinstance(raw_block, dict):
+            fund_financing = dict(raw_block)
+        else:
+            fund_financing = empty_fund_financing_block("")
+        for item in dry_payload.get("warnings") or []:
+            text = str(item)
+            if "financing" in text and text not in financing_warnings:
+                financing_warnings.append(text)
     else:
         adv_ledger_preview = load_advances_ledger(
             profile, ledger_path=advances_ledger_path
@@ -459,13 +472,14 @@ def compute_money_check_report(
                 "available_personal_fund": starting_fund,
             }
 
-    actual_spend, _spend_lines, spend_warnings = compute_personal_spend(
+    actual_spend, _spend_lines, spend_warnings = resolve_period_personal_spend(
         api,
-        budget_version_id=budget_version_id,
-        closed_period=check_yyyy_mm,
-        mapping=mapping,
+        period=check_yyyy_mm,
         partner_ids=partner_ids,
         partners_meta=partners_meta,
+        mapping=mapping,
+        budget_version_id=budget_version_id,
+        allow_non_final=True,
     )
 
     figures_preliminary = methodology["is_preliminary"]
@@ -478,6 +492,9 @@ def compute_money_check_report(
         carry = carryover_partners.get(pid, {})
         starting_fund = round_money(float(carry.get("starting_fund", base_share_map.get(pid, 0.0))))
         spend_mtd = round_money(actual_spend.get(pid, 0.0))
+        outgoing_financing = 0.0
+        if carryover_source == "dry_run":
+            outgoing_financing = round_money(float(carry.get("outgoing_financing", 0.0)))
         partners_out.append(
             {
                 "id": pid,
@@ -487,6 +504,7 @@ def compute_money_check_report(
                 "advance_deduction": round_money(float(carry.get("advance_deduction", 0.0))),
                 "starting_fund": starting_fund,
                 "actual_spend_mtd": spend_mtd,
+                "outgoing_financing": outgoing_financing,
                 "remaining_balance": round_money(starting_fund - spend_mtd),
                 "figures_preliminary": figures_preliminary,
                 "figures_incomplete": figures_incomplete,
@@ -550,6 +568,10 @@ def compute_money_check_report(
         if flagged:
             warnings.append(f"overrun_discussion_required:{pid}")
 
+    for text in financing_warnings:
+        if text not in warnings:
+            warnings.append(text)
+
     c24_block = build_c24_attribution_notes(mapping, spend_warnings)
 
     return {
@@ -588,6 +610,7 @@ def compute_money_check_report(
             "target_period": check_yyyy_mm,
             "log_computed_at": log_computed_at,
         },
+        "fund_financing": fund_financing,
         "c24_attribution": c24_block,
         "purchases_hint": PURCHASES_HINT,
         "warnings": warnings,

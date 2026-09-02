@@ -46,6 +46,13 @@ def _readiness_payload(
                     "blocking": False,
                     "details": {"count": other_without_note},
                 },
+                {
+                    "id": "missing_fund",
+                    "status": "pass",
+                    "blocking": False,
+                    "message": "Нет фонда на позициях: 0",
+                    "details": {"count": 0, "line_ids": []},
+                },
             ]
         )
     return {"ready": ready, "checks": checks}

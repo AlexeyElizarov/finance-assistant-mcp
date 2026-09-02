@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -35,6 +36,21 @@ BUDGET_ITEMS = [
 ]
 
 
+DEFAULT_HOUSEHOLDS = [{"id": "hh1"}]
+DEFAULT_FUNDS = [
+    {
+        "id": "personal-elizarov",
+        "allocation_rule": "equal_share",
+        "member_id": "aleksey",
+    },
+    {
+        "id": "personal-dubrovskii",
+        "allocation_rule": "equal_share",
+        "member_id": "nikolay",
+    },
+]
+
+
 class FakeApi:
     """Minimal API stub for money check tests."""
 
@@ -44,10 +60,21 @@ class FakeApi:
         reconciliation: dict[str, dict[str, Any]],
         transactions: list[dict[str, Any]] | None = None,
         classification: dict[str, dict[str, Any]] | None = None,
+        carryover_status: int = 404,
+        carryover_body: dict[str, Any] | None = None,
+        households: list[dict[str, Any]] | None = None,
+        funds: list[dict[str, Any]] | None = None,
+        operations: list[dict[str, Any]] | None = None,
     ) -> None:
         self.reconciliation = reconciliation
         self.transactions = transactions or []
         self.classification = classification or {}
+        self.carryover_status = carryover_status
+        self.carryover_body = carryover_body or {}
+        self.households = households if households is not None else list(DEFAULT_HOUSEHOLDS)
+        self.funds = funds if funds is not None else list(DEFAULT_FUNDS)
+        self.operations = operations or []
+        self.carryover_get_paths: list[str] = []
 
     def get_json(self, path: str) -> dict[str, Any]:
         if path.startswith("/api/v1/budget/reconciliation?"):
@@ -67,10 +94,42 @@ class FakeApi:
                 )
             )
         if path.startswith("/api/v1/transactions?"):
-            return {"rows": self.transactions, "meta": {"filter_error": None}}
+            rows = list(self.transactions)
+            known = {str(row.get("id")) for row in rows if isinstance(row, dict)}
+            for operation in self.operations:
+                tx_id = str(operation.get("id") or "")
+                if tx_id and tx_id not in known:
+                    rows.append({"id": tx_id, "transaction_key": tx_id})
+            return {"rows": rows, "meta": {"filter_error": None}}
         if path == "/api/v1/budget/items":
             return {"budget_items": BUDGET_ITEMS}
         raise AssertionError(f"unexpected get_json path: {path}")
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        data: dict[str, Any] | None = None,
+    ) -> tuple[int, Any]:
+        del data
+        if method == "GET" and path.startswith(
+            "/api/v1/household/personal-fund-carryover?"
+        ):
+            self.carryover_get_paths.append(path)
+            return self.carryover_status, self.carryover_body
+        if method == "GET" and path == "/api/v1/households":
+            return 200, {"households": self.households}
+        if method == "GET" and "/households/" in path and path.endswith("/funds"):
+            return 200, {"funds": self.funds}
+        if method == "GET" and "/transactions/" in path and path.endswith("/lines"):
+            tx_id = urllib.parse.unquote(
+                path.split("/transactions/", 1)[1].split("/", 1)[0]
+            )
+            for operation in self.operations:
+                if str(operation.get("id")) == tx_id:
+                    return 200, {"lines": operation.get("lines") or []}
+            return 200, {"lines": []}
+        raise AssertionError(f"unexpected request: {method} {path}")
 
 
 def _base_payload(base_share: float = 1000.0) -> dict[str, Any]:
@@ -116,6 +175,11 @@ class MoneyCheckReportTests(unittest.TestCase):
         spend: dict[str, float] | None = None,
         dry_run_payload: dict[str, Any] | None = None,
         include_advance_breakdown: bool = True,
+        operations: list[dict[str, Any]] | None = None,
+        carryover_status: int = 404,
+        carryover_body: dict[str, Any] | None = None,
+        patch_spend: bool = True,
+        api: FakeApi | None = None,
     ) -> dict[str, Any]:
         prior = prior_period or "2026-06"
         recon = reconciliation or {
@@ -130,11 +194,15 @@ class MoneyCheckReportTests(unittest.TestCase):
                 "close_phase": None,
             },
         }
-        api = FakeApi(
-            reconciliation=recon,
-            transactions=transactions or [],
-            classification=classification,
-        )
+        if api is None:
+            api = FakeApi(
+                reconciliation=recon,
+                transactions=transactions or [],
+                classification=classification,
+                carryover_status=carryover_status,
+                carryover_body=carryover_body,
+                operations=operations or [],
+            )
         if carryover_log is not None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             self.log_path.write_text(json.dumps(carryover_log), encoding="utf-8")
@@ -149,8 +217,14 @@ class MoneyCheckReportTests(unittest.TestCase):
                 "money_check_report.compute_household_base_share",
                 return_value=_base_payload(),
             ),
-            patch("money_check_report.compute_personal_spend", side_effect=spend_side_effect),
         ]
+        if patch_spend:
+            patches.append(
+                patch(
+                    "personal_fund_carryover.compute_personal_spend",
+                    side_effect=spend_side_effect,
+                )
+            )
         if dry_run_payload is not None:
             patches.append(
                 patch(
@@ -400,6 +474,178 @@ class MoneyCheckReportTests(unittest.TestCase):
             base_share_by_partner={"aleksey": 1000.0},
         )
         self.assertEqual(block["partners"]["aleksey"]["starting_fund"], 1100.0)
+
+    def test_fin280_dry_run_financing_passthrough(self) -> None:
+        """FIN-280 T7.4: money_check copies financing + warnings from dry-run."""
+        financing_block = {
+            "accounting_period": "202606",
+            "projections": [{"settlement_id": "s1", "amount": "140.00"}],
+            "outgoing_by_fund": {"personal-elizarov": 140.0},
+            "incoming_by_fund": {"shared": 140.0},
+            "outgoing_by_member": {"aleksey": 140.0},
+            "outgoing_by_analytics": [],
+            "warnings": ["financing_skipped_missing_fund:s2"],
+        }
+        warning = "financing_skipped_missing_fund:s2"
+        payload = self._run(
+            dry_run_payload={
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "incoming_carryover": 120.0,
+                        "advance_deduction": 0.0,
+                        "available_personal_fund": 1120.0,
+                        "outgoing_financing": 140.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "incoming_carryover": 0.0,
+                        "advance_deduction": 0.0,
+                        "available_personal_fund": 1000.0,
+                        "outgoing_financing": 0.0,
+                    },
+                ],
+                "fund_financing": financing_block,
+                "warnings": [warning, "overrun_discussion_required:aleksey"],
+            }
+        )
+        self.assertEqual(payload["carryover"]["source"], "dry_run")
+        aleksey = next(row for row in payload["partners"] if row["id"] == "aleksey")
+        self.assertEqual(aleksey["outgoing_financing"], 140.0)
+        self.assertEqual(payload["fund_financing"], financing_block)
+        self.assertIn(warning, payload["warnings"])
+        self.assertNotIn(
+            "financing_not_from_log",
+            payload["warnings"],
+        )
+
+    def test_fin280_log_source_empty_financing(self) -> None:
+        """FIN-280 T3/T7.6: log source → zeros and empty block, no extra dry-run."""
+        log = {
+            "schema_version": 1,
+            "profile": "test",
+            "runs": [
+                {
+                    "closed_period": "2026-06",
+                    "target_period": "2026-07",
+                    "computed_at": "2026-07-01T08:00:00Z",
+                    "partners": {
+                        "aleksey": {
+                            "carryover": 120.0,
+                            "advance_deduction": 0.0,
+                            "overrun_amount": 0.0,
+                        },
+                        "nikolay": {
+                            "carryover": 0.0,
+                            "advance_deduction": 0.0,
+                            "overrun_amount": 0.0,
+                        },
+                    },
+                }
+            ],
+        }
+        with patch(
+            "money_check_report.compute_personal_fund_carryover"
+        ) as mocked_carryover:
+            payload = self._run(carryover_log=log)
+            mocked_carryover.assert_not_called()
+        self.assertEqual(payload["carryover"]["source"], "log")
+        for row in payload["partners"]:
+            self.assertEqual(row["outgoing_financing"], 0.0)
+        block = payload["fund_financing"]
+        self.assertEqual(block["accounting_period"], "")
+        self.assertEqual(block["projections"], [])
+        self.assertEqual(block["outgoing_by_fund"], {})
+        self.assertFalse(
+            any("financing" in str(w) and "log" in str(w) for w in payload["warnings"])
+        )
+
+    def test_fin280_none_source_empty_financing(self) -> None:
+        """FIN-280 T3/T7.6: none source → zeros and empty block."""
+        payload = self._run(
+            reconciliation={
+                "2026-06": {
+                    "status": "open",
+                    "methodology_status": "open",
+                    "close_phase": None,
+                },
+                "2026-07": {
+                    "status": "open",
+                    "methodology_status": "open",
+                    "close_phase": None,
+                },
+            }
+        )
+        self.assertEqual(payload["carryover"]["source"], "none")
+        for row in payload["partners"]:
+            self.assertEqual(row["outgoing_financing"], 0.0)
+        block = payload["fund_financing"]
+        self.assertEqual(block["accounting_period"], "")
+        self.assertEqual(block["projections"], [])
+
+
+class Fin324MoneyCheckSpendTests(MoneyCheckReportTests):
+    """FIN-324 T3 and T9 for money_check_report."""
+
+    def test_fin324_t3_local_fallback_spend(self) -> None:
+        payload = self._run(
+            patch_spend=False,
+            dry_run_payload={"partners": []},
+            operations=[
+                {
+                    "id": "tx-check",
+                    "lines": [
+                        {
+                            "id": "line-alek-25",
+                            "amount": "25.00",
+                            "assignment": {
+                                "type": "C",
+                                "category": "C0001",
+                                "fund_id": "personal-elizarov",
+                            },
+                        }
+                    ],
+                }
+            ],
+        )
+        aleksey = next(row for row in payload["partners"] if row["id"] == "aleksey")
+        nikolay = next(row for row in payload["partners"] if row["id"] == "nikolay")
+        self.assertEqual(aleksey["actual_spend_mtd"], 25.0)
+        self.assertEqual(nikolay["actual_spend_mtd"], 0.0)
+
+    def test_fin324_t9_http_500_is_tool_error(self) -> None:
+        from personal_fund_carryover import probe_household_carryover_api
+
+        body = {"error": {"code": "upstream", "message": "boom"}}
+        recon = {
+            "2026-06": {
+                "status": "closed",
+                "methodology_status": "final_closed",
+                "close_phase": "final",
+            },
+            "2026-07": {
+                "status": "open",
+                "methodology_status": "open",
+                "close_phase": None,
+            },
+        }
+        api = FakeApi(
+            reconciliation=recon,
+            carryover_status=500,
+            carryover_body=body,
+        )
+        with self.assertRaises(RuntimeError) as carryover_error:
+            probe_household_carryover_api(
+                api, "2026-07", None, allow_non_final=True
+            )
+        with self.assertRaises(RuntimeError) as report_error:
+            self._run(
+                api=api,
+                patch_spend=False,
+                dry_run_payload={"partners": []},
+            )
+        self.assertEqual(str(report_error.exception), str(carryover_error.exception))
+        self.assertIn("HTTP 500", str(report_error.exception))
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ IMPORT_ORDER: tuple[tuple[str, str], ...] = (
     ("sparkasse_mastercard", "Mastercard"),
     ("sparkasse_sepa", "SEPA Giro"),
     ("c24", "C24"),
+    ("tbank", "T-Bank"),
 )
 
 CLOSE_PHASES = ("preliminary", "final")
@@ -301,6 +302,51 @@ def _readiness_check_by_id(
     return None
 
 
+def _valid_non_negative_int(value: Any) -> int | None:
+    """
+    Return ``value`` when it is a non-negative integer.
+
+    Boolean is rejected even though it is a subclass of ``int``.
+
+    :param value: Raw JSON field
+    :return: Non-negative integer, or ``None`` when the value is not a valid count
+    """
+    if type(value) is not int or value < 0:
+        return None
+    return value
+
+
+def _missing_fund_line_count(check: dict[str, Any] | None) -> int | None:
+    """
+    Return the authoritative missing-fund line count from a readiness check.
+
+    :param check: Readiness item with id ``missing_fund``, or ``None``
+    :return: Non-negative count, or ``None`` when the check or count is unusable
+    """
+    if not isinstance(check, dict):
+        return None
+    details = check.get("details")
+    if not isinstance(details, dict):
+        return None
+    return _valid_non_negative_int(details.get("count"))
+
+
+def _missing_fund_warning(check: dict[str, Any] | None) -> str | None:
+    """
+    Return the verify warning for a missing-fund readiness check.
+
+    :param check: Readiness item with id ``missing_fund``, or ``None``
+    :return: Warning text when the count is a positive integer, else ``None``
+    """
+    count = _missing_fund_line_count(check)
+    if count is None or count == 0:
+        return None
+    message = check.get("message") if isinstance(check, dict) else None
+    if isinstance(message, str) and message:
+        return message
+    return f"Нет фонда на позициях: {count}"
+
+
 def c9999_close_guard_error(
     *,
     expense_c9999_count: int,
@@ -312,8 +358,9 @@ def c9999_close_guard_error(
     """
     Return close-blocking classification error, or ``None`` when close may proceed.
 
-    Final (FIN-69): requires readiness checks ``unclassified_pending`` and
-    ``other_without_note``; ``expense_c9999_count`` alone does not block.
+    Final (FIN-69, FIN-329): requires readiness checks ``unclassified_pending``,
+    ``other_without_note``, and ``missing_fund``; ``expense_c9999_count``
+    alone does not block.
     Preliminary (FIN-2): C9999 requires ack or effective keywords; new checks optional.
 
     :param expense_c9999_count: Count from latest verify classification summary
@@ -327,10 +374,26 @@ def c9999_close_guard_error(
         payload = readiness if isinstance(readiness, dict) else {}
         pending_check = _readiness_check_by_id(payload, "unclassified_pending")
         note_check = _readiness_check_by_id(payload, "other_without_note")
-        if pending_check is None or note_check is None:
+        fund_check = _readiness_check_by_id(payload, "missing_fund")
+        missing_ids = [
+            check_id
+            for check_id, check in (
+                ("unclassified_pending", pending_check),
+                ("other_without_note", note_check),
+                ("missing_fund", fund_check),
+            )
+            if check is None
+        ]
+        if missing_ids:
             return (
                 "API readiness missing required classification checks "
-                "(unclassified_pending, other_without_note) for final close"
+                f"({', '.join(missing_ids)}) for final close"
+            )
+        fund_count = _missing_fund_line_count(fund_check)
+        if fund_count is None:
+            return (
+                "API readiness has invalid required fund check "
+                "(missing_fund) for final close"
             )
         pending_count = int(
             (pending_check.get("details") or {}).get("unclassified_pending_count") or 0
@@ -343,6 +406,8 @@ def c9999_close_guard_error(
                 "intentional Other without reconciliation_note — "
                 "add notes before final close"
             )
+        if fund_count > 0:
+            return "missing fund on lines > 0 — assign fund before final close"
         return None
     if expense_c9999_count <= 0:
         return None
@@ -669,6 +734,11 @@ def resolve_statements(period: Period, kanon: Path = KANON) -> dict[str, Path | 
     if not c24.is_file():
         raise FileNotFoundError(f"C24: expected {c24}")
     found["c24"] = c24
+
+    tbank = kanon / "tbank" / f"{period.yyyy_mm}-tbank-operations.csv"
+    if not tbank.is_file():
+        raise FileNotFoundError(f"T-Bank: expected {tbank}")
+    found["tbank"] = tbank
 
     sepa_glob = list(
         kanon.glob(
@@ -1219,6 +1289,12 @@ def import_log_entry(
     }
     if isinstance(body, dict):
         entry["body"] = body
+        error = body.get("error")
+        if isinstance(error, dict):
+            if "code" in error:
+                entry["error_code"] = error["code"]
+            if "details" in error:
+                entry["error_details"] = error["details"]
         if status == 422:
             error = body.get("error") or {}
             details = error.get("details") or {}
@@ -1250,7 +1326,7 @@ def run_imports(
     kanon: Path = KANON,
 ) -> list[dict[str, Any]]:
     """
-    Import MC (one multipart), SEPA, C24 for the month.
+    Import MC (one multipart), SEPA, C24, T-Bank for the month.
 
     :param api: API client
     :param period: Target month
@@ -1364,6 +1440,9 @@ def verify_period(
     )
     if note_check.get("status") == "warn" or note_count > 0:
         warnings.append(f"Other без note: {note_count}")
+    fund_warning = _missing_fund_warning(checks.get("missing_fund"))
+    if fund_warning:
+        warnings.append(fund_warning)
     if balances.get("status") == "incomplete":
         issues.append("balances: incomplete — повтори import SEPA/MC пока period open")
     elif balances.get("status") != "pass":

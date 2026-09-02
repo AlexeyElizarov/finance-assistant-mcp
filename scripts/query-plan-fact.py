@@ -31,7 +31,7 @@ BOOTSTRAP_HINT = (
 
 @dataclass(frozen=True)
 class MonthRow:
-    """Plan-fact row for one calendar month."""
+    """Plan-fact row for one calendar month and HTTP row currency."""
 
     period: str
     article: str
@@ -39,6 +39,7 @@ class MonthRow:
     plan: float
     fact: float
     variance: float
+    currency: str | None = None
 
 
 def parse_amount(raw: str | float | int | None) -> float:
@@ -466,22 +467,26 @@ def resolve_budget_item_id(api: ApiClient, article: str | None, budget_item_id: 
     raise RuntimeError(format_not_found_article_error(article, candidates))
 
 
-def fetch_month_row(
+def fetch_month_rows(
     api: ApiClient,
     budget_version_id: str,
     period: str,
     budget_item_id: str,
     article: str,
-) -> MonthRow:
+) -> list[MonthRow]:
     """
-    Load plan-fact for one month from grouped plan-actual.
+    Load plan-fact rows for one month from grouped plan-actual.
+
+    One HTTP grain (period + row currency) becomes one :class:`MonthRow`.
+    When the article has no grid row, a single zero row with ``currency``
+    ``None`` is returned.
 
     :param api: API client
     :param budget_version_id: Budget version UUID
     :param period: Month start ``YYYY-MM-01``
     :param budget_item_id: Article UUID
     :param article: Display name
-    :return: Month row
+    :return: Month rows for the article
     """
     query = urllib.parse.urlencode(
         {
@@ -491,20 +496,57 @@ def fetch_month_row(
         }
     )
     data = api.get_json(f"/api/v1/budget/plan-actual?{query}")
-    node = next(
-        (
-            n
-            for n in data.get("grid_nodes", [])
-            if n.get("kind") == "row" and n.get("budget_item_id") == budget_item_id
-        ),
-        None,
+    nodes = [
+        n
+        for n in data.get("grid_nodes", [])
+        if n.get("kind") == "row" and n.get("budget_item_id") == budget_item_id
+    ]
+    if not nodes:
+        return [MonthRow(period, article, budget_item_id, 0.0, 0.0, 0.0, None)]
+    rows: list[MonthRow] = []
+    for node in nodes:
+        raw_currency = node.get("currency")
+        currency: str | None
+        if raw_currency is None:
+            currency = None
+        elif isinstance(raw_currency, str):
+            currency = raw_currency
+        else:
+            currency = str(raw_currency)
+        rows.append(
+            MonthRow(
+                period,
+                article,
+                budget_item_id,
+                parse_amount(node.get("plan_amount")),
+                parse_amount(node.get("actual_amount")),
+                parse_amount(node.get("variance")),
+                currency,
+            )
+        )
+    return rows
+
+
+def fetch_month_row(
+    api: ApiClient,
+    budget_version_id: str,
+    period: str,
+    budget_item_id: str,
+    article: str,
+) -> list[MonthRow]:
+    """
+    Alias of :func:`fetch_month_rows` for existing callers.
+
+    :param api: API client
+    :param budget_version_id: Budget version UUID
+    :param period: Month start ``YYYY-MM-01``
+    :param budget_item_id: Article UUID
+    :param article: Display name
+    :return: Month rows for the article
+    """
+    return fetch_month_rows(
+        api, budget_version_id, period, budget_item_id, article
     )
-    if node is None:
-        return MonthRow(period, article, budget_item_id, 0.0, 0.0, 0.0)
-    plan = parse_amount(node.get("plan_amount"))
-    fact = parse_amount(node.get("actual_amount"))
-    variance = parse_amount(node.get("variance"))
-    return MonthRow(period, article, budget_item_id, plan, fact, variance)
 
 
 def fetch_transactions(
@@ -512,24 +554,26 @@ def fetch_transactions(
     budget_version_id: str,
     period: str,
     budget_item_id: str,
+    currency: str | None = None,
 ) -> list[dict]:
     """
-    Load drill-down transactions for one month.
+    Load drill-down transactions for one month and HTTP row currency.
 
     :param api: API client
     :param budget_version_id: Budget version UUID
     :param period: Month start
     :param budget_item_id: Article UUID
+    :param currency: HTTP row currency; omitted when ``None``
     :return: Transaction dicts
     """
-    query = urllib.parse.urlencode(
-        {
-            "budget_version_id": budget_version_id,
-            "period": period,
-            "budget_item_id": budget_item_id,
-            "currency": "EUR",
-        }
-    )
+    params: dict[str, str] = {
+        "budget_version_id": budget_version_id,
+        "period": period,
+        "budget_item_id": budget_item_id,
+    }
+    if currency is not None:
+        params["currency"] = currency
+    query = urllib.parse.urlencode(params)
     data = api.get_json(f"/api/v1/budget/plan-actual/transactions?{query}")
     return list(data.get("transactions", []))
 
@@ -540,12 +584,13 @@ def print_table(rows: list[MonthRow]) -> None:
 
     :param rows: Plan-fact rows
     """
-    print("period\tplan\tfact\tvariance")
+    print("period\tcurrency\tplan\tfact\tvariance")
     total_plan = 0.0
     total_fact = 0.0
     for row in rows:
+        currency = row.currency if row.currency is not None else ""
         print(
-            f"{row.period[:7]}\t{row.plan:.2f}\t{row.fact:.2f}\t{row.variance:.2f}"
+            f"{row.period[:7]}\t{currency}\t{row.plan:.2f}\t{row.fact:.2f}\t{row.variance:.2f}"
         )
         total_plan += row.plan
         total_fact += row.fact
@@ -618,35 +663,51 @@ def main() -> int:
         budget_version_id = args.budget_version_id or active_budget_version_id(api)
         item_id, article_name = resolve_budget_item_id(api, args.article, args.budget_item_id)
         months = iter_months(args.date_from, args.date_to)
-        rows = [
-            fetch_month_row(api, budget_version_id, period, item_id, article_name)
-            for period in months
-        ]
+        rows: list[MonthRow] = []
+        for period in months:
+            rows.extend(
+                fetch_month_rows(
+                    api, budget_version_id, period, item_id, article_name
+                )
+            )
 
-        tx_by_month: dict[str, list[dict]] = {}
+        tx_by_grain: dict[tuple[str, str], list[dict]] = {}
         if args.transactions:
-            for period in months:
-                txs = fetch_transactions(api, budget_version_id, period, item_id)
+            for row in rows:
+                if row.currency is None:
+                    continue
+                txs = fetch_transactions(
+                    api,
+                    budget_version_id,
+                    row.period,
+                    item_id,
+                    currency=row.currency,
+                )
                 if txs:
-                    tx_by_month[period] = txs
+                    tx_by_grain[(row.period, row.currency)] = txs
 
         if args.format == "json":
+            month_payloads: list[dict[str, Any]] = []
+            for row in rows:
+                entry: dict[str, Any] = {
+                    "period": row.period,
+                    "currency": row.currency,
+                    "plan": row.plan,
+                    "fact": row.fact,
+                    "variance": row.variance,
+                }
+                if args.transactions and row.currency is not None:
+                    txs = tx_by_grain.get((row.period, row.currency))
+                    if txs:
+                        entry["transactions"] = txs
+                month_payloads.append(entry)
             payload = {
                 "data_profile": active or None,
                 "base": base,
                 "budget_version_id": budget_version_id,
                 "budget_item_id": item_id,
                 "article": article_name,
-                "months": [
-                    {
-                        "period": row.period,
-                        "plan": row.plan,
-                        "fact": row.fact,
-                        "variance": row.variance,
-                        "transactions": tx_by_month.get(row.period, []),
-                    }
-                    for row in rows
-                ],
+                "months": month_payloads,
             }
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
@@ -656,8 +717,8 @@ def main() -> int:
             print(f"# budget_item_id: {item_id}")
             print_table(rows)
             if args.transactions:
-                for period, txs in tx_by_month.items():
-                    print(f"\n# transactions {period[:7]}")
+                for (period, currency), txs in tx_by_grain.items():
+                    print(f"\n# transactions {period[:7]} {currency}")
                     for tx in txs:
                         print(
                             f"{tx.get('posting_date', '')}\t"

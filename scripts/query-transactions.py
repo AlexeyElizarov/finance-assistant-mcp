@@ -36,6 +36,12 @@ class Row:
     transaction_type: str = ""
     expense_owner: str | None = None
     fund_id: str | None = None
+    bank_account_id: str | None = None
+    currency: str | None = None
+    budget_currency: str | None = None
+    planned_rate: str | None = None
+    posted_amount: Any = None
+    posted_currency: Any = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,7 @@ class QueryArgs:
     provider: str | None = None
     description: str | None = None
     contains: list[str] | None = None
+    bank_account_id: str | None = None
 
 
 def _normalize_optional_string(value: Any) -> str | None:
@@ -97,6 +104,7 @@ def normalize_query_args(
     provider: Any = None,
     description: Any = None,
     contains: Any = None,
+    bank_account_id: Any = None,
 ) -> QueryArgs:
     """
     Normalize MCP/CLI transaction query arguments (FIN-27).
@@ -114,6 +122,7 @@ def normalize_query_args(
         provider=_normalize_optional_string(provider),
         description=_normalize_optional_string(description),
         contains=_normalize_contains(contains),
+        bank_account_id=_normalize_optional_string(bank_account_id),
     )
 
 
@@ -136,6 +145,7 @@ def _has_active_filter(args: QueryArgs) -> bool:
             args.provider,
             args.description,
             args.contains,
+            args.bank_account_id,
         )
     )
 
@@ -206,6 +216,43 @@ def month_key(date_display: str) -> str:
     raise ValueError(f"Неизвестный формат даты: {date_display!r}")
 
 
+def _fx_header_value(raw: dict, key: str) -> str | None:
+    """
+    Map a stored FX header field from an API row.
+
+    Missing key and JSON ``null`` become ``None``. A string is returned
+    without trimming or substituting ``EUR``.
+
+    :param raw: API transaction row
+    :param key: Header field name
+    :return: Stored value or ``None``
+    """
+    if key not in raw:
+        return None
+    value = raw[key]
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _posted_header_value(raw: dict, key: str) -> Any:
+    """
+    Copy a posted-pair header field from an API row without reformatting.
+
+    Missing key and JSON ``null`` become ``None``. The value is returned
+    as stored; FIN-346 owns the string decimal form.
+
+    :param raw: API transaction row
+    :param key: Header field name
+    :return: Stored value or ``None``
+    """
+    if key not in raw:
+        return None
+    return raw[key]
+
+
 def row_from_api(raw: dict) -> Row:
     """
     Build :class:`Row` from API dict.
@@ -225,6 +272,12 @@ def row_from_api(raw: dict) -> Row:
         fund_id = None
     else:
         fund_id = str(raw_fund)
+    raw_bank = raw.get("bank_account_id")
+    bank_account_id: str | None
+    if raw_bank is None:
+        bank_account_id = None
+    else:
+        bank_account_id = str(raw_bank)
     return Row(
         date_display=raw["date_display"],
         amount=parse_amount(raw["amount"]),
@@ -236,6 +289,12 @@ def row_from_api(raw: dict) -> Row:
         transaction_type=str(raw.get("transaction_type") or ""),
         expense_owner=expense_owner,
         fund_id=fund_id,
+        bank_account_id=bank_account_id,
+        currency=_fx_header_value(raw, "currency"),
+        budget_currency=_fx_header_value(raw, "budget_currency"),
+        planned_rate=_fx_header_value(raw, "planned_rate"),
+        posted_amount=_posted_header_value(raw, "posted_amount"),
+        posted_currency=_posted_header_value(raw, "posted_currency"),
     )
 
 
@@ -267,6 +326,8 @@ def build_query_path(args: QueryArgs) -> str:
         params["debit_credit_indicator"] = args.indicator
     if args.provider:
         params["provider"] = args.provider
+    if args.bank_account_id:
+        params["bank_account_id"] = args.bank_account_id
 
     contains = args.contains or []
     if args.description and len(contains) <= 1:
@@ -449,6 +510,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--provider", help="provider, напр. sparkasse_sepa")
     parser.add_argument(
+        "--bank-account-id",
+        dest="bank_account_id",
+        help="Фильтр bank_account_id (в т.ч. sentinel __empty__)",
+    )
+    parser.add_argument(
         "--description",
         help="Подстрока в описании (одна; передаётся в API)",
     )
@@ -497,6 +563,7 @@ def main() -> int:
         provider=raw.provider,
         description=raw.description,
         contains=raw.contains,
+        bank_account_id=raw.bank_account_id,
     )
     try:
         api = ApiClient(raw.base)
@@ -516,6 +583,7 @@ def main() -> int:
                         "transaction_type": r.transaction_type,
                         "expense_owner": r.expense_owner,
                         "fund_id": r.fund_id,
+                        "bank_account_id": r.bank_account_id,
                         "provider": r.provider,
                         "description": r.description,
                     }

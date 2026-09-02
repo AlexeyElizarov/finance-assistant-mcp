@@ -194,6 +194,13 @@ class HandlerTests(unittest.TestCase):
         mock_row.id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
         mock_row.transaction_type = "C"
         mock_row.expense_owner = None
+        mock_row.fund_id = None
+        mock_row.bank_account_id = None
+        mock_row.currency = None
+        mock_row.budget_currency = None
+        mock_row.planned_rate = None
+        mock_row.posted_amount = None
+        mock_row.posted_currency = None
 
         with patch.object(server, "get_session", return_value=(MagicMock(), "http://127.0.0.1:8000")):
             with patch.object(server, "fetch_rows", return_value=[mock_row]):
@@ -206,6 +213,7 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["id"], "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1")
         self.assertEqual(payload["rows"][0]["transaction_type"], "C")
         self.assertIsNone(payload["rows"][0]["expense_owner"])
+        self.assertIsNone(payload["rows"][0]["bank_account_id"])
         self.assertNotIn("transaction_key", payload["rows"][0])
 
 

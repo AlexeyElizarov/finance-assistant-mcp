@@ -1,0 +1,112 @@
+{
+  "commit": "db8af05",
+  "mode": "live-mcp",
+  "base": "http://127.0.0.1:8003",
+  "db": "C:\\Users\\haake\\AppData\\Local\\finance-planning\\finance.db",
+  "profile": "cand",
+  "household_id": "default",
+  "bank_id": "f6e4a89c-5f16-4c4b-8d48-bd190a5a8974",
+  "account_id": "acc-mcp-fin341-live",
+  "T1": [
+    {
+      "step": 1,
+      "actual": "ok=True; n=9; currency_key=True",
+      "result": "PASSED"
+    },
+    {
+      "step": 2,
+      "actual": "id=acc-c24; currency=None",
+      "result": "PASSED"
+    }
+  ],
+  "T2": [
+    {
+      "step": 1,
+      "actual": "ok=True; currency=EUR",
+      "result": "PASSED"
+    },
+    {
+      "step": 2,
+      "actual": "listed_currency=EUR",
+      "result": "PASSED"
+    },
+    {
+      "step": 3,
+      "actual": "ok=True; currency=EUR",
+      "result": "PASSED"
+    }
+  ],
+  "T3": [
+    {
+      "step": 1,
+      "actual": "HTTP 422; code=validation_error; created=False",
+      "result": "PASSED"
+    },
+    {
+      "step": 2,
+      "actual": "HTTP 422; code=validation_error; created=False",
+      "result": "PASSED"
+    },
+    {
+      "step": 3,
+      "actual": "HTTP 422; code=validation_error; created=False",
+      "result": "PASSED"
+    },
+    {
+      "step": 4,
+      "actual": "HTTP 422; code=validation_error; created=False",
+      "result": "PASSED"
+    },
+    {
+      "step": 5,
+      "actual": "MCP schema: 123 is not of type 'string'; HTTP not called",
+      "result": "PASSED"
+    }
+  ],
+  "T4": [
+    {
+      "step": 1,
+      "actual": "name=ACCEPT-MCP-FIN341 T4 step 1; currency=EUR",
+      "result": "PASSED"
+    },
+    {
+      "step": 2,
+      "actual": "HTTP 409; code=bank_account_currency_immutable; name=ACCEPT-MCP-FIN341 T4 step 1; currency=EUR",
+      "result": "PASSED"
+    },
+    {
+      "step": 3,
+      "actual": "MCP schema: None is not of type 'string'; currency=EUR",
+      "result": "PASSED"
+    }
+  ],
+  "T5": [
+    {
+      "step": 1,
+      "actual": "ok=True; currency=None",
+      "result": "PASSED"
+    },
+    {
+      "step": 2,
+      "actual": "ok=True; currency=RUB",
+      "result": "PASSED"
+    },
+    {
+      "step": 3,
+      "actual": "ok=True; currency=RUB",
+      "result": "PASSED"
+    },
+    {
+      "step": 4,
+      "actual": "HTTP 409; code=bank_account_currency_immutable; currency=RUB",
+      "result": "PASSED"
+    }
+  ],
+  "T6": [
+    {
+      "step": 1,
+      "actual": "python -m unittest tests.test_households — 27 OK",
+      "result": "PASSED"
+    }
+  ]
+}

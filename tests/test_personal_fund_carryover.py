@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -40,6 +41,53 @@ BUDGET_ITEMS = [
     {"id": "item-chatgpt", "name": "ChatGPT", "flow_type": "IRR"},
 ]
 
+DEFAULT_HOUSEHOLDS = [{"id": "hh1"}]
+DEFAULT_FUNDS = [
+    {
+        "id": "personal-elizarov",
+        "allocation_rule": "equal_share",
+        "member_id": "aleksey",
+    },
+    {
+        "id": "personal-dubrovskii",
+        "allocation_rule": "equal_share",
+        "member_id": "nikolay",
+    },
+    {
+        "id": "shared",
+        "allocation_rule": "before_split",
+        "member_id": None,
+    },
+    {
+        "id": "office-week",
+        "allocation_rule": "before_split",
+        "member_id": "aleksey",
+    },
+]
+
+
+def _op_line(
+    line_id: str,
+    amount: str,
+    fund_id: str | None,
+    *,
+    line_type: str = "C",
+    category: str | None = "C0001",
+) -> dict[str, Any]:
+    return {
+        "id": line_id,
+        "amount": amount,
+        "assignment": {
+            "type": line_type,
+            "category": category,
+            "fund_id": fund_id,
+        },
+    }
+
+
+def _operation(tx_id: str, *lines: dict[str, Any]) -> dict[str, Any]:
+    return {"id": tx_id, "lines": list(lines)}
+
 
 class FakeApi:
     """Minimal API stub for carryover tests."""
@@ -55,6 +103,9 @@ class FakeApi:
         runs_get_body: dict[str, Any] | None = None,
         runs_put_status: int = 404,
         runs_put_body: dict[str, Any] | None = None,
+        households: list[dict[str, Any]] | None = None,
+        funds: list[dict[str, Any]] | None = None,
+        operations: list[dict[str, Any]] | None = None,
     ) -> None:
         self.methodology_status = methodology_status
         self.transactions = transactions or []
@@ -66,6 +117,9 @@ class FakeApi:
         }
         self.runs_put_status = runs_put_status
         self.runs_put_body = runs_put_body or {}
+        self.households = households if households is not None else list(DEFAULT_HOUSEHOLDS)
+        self.funds = funds if funds is not None else list(DEFAULT_FUNDS)
+        self.operations = operations or []
         self.put_calls: list[dict[str, Any]] = []
         self.get_run_calls: list[str] = []
         self.carryover_get_paths: list[str] = []
@@ -78,7 +132,13 @@ class FakeApi:
                 "close_phase": "final",
             }
         if path.startswith("/api/v1/transactions?"):
-            return {"rows": self.transactions, "meta": {"filter_error": None}}
+            rows = list(self.transactions)
+            known = {str(row.get("id")) for row in rows if isinstance(row, dict)}
+            for operation in self.operations:
+                tx_id = str(operation.get("id") or "")
+                if tx_id and tx_id not in known:
+                    rows.append({"id": tx_id, "transaction_key": tx_id})
+            return {"rows": rows, "meta": {"filter_error": None}}
         if path == "/api/v1/budget/items":
             return {"budget_items": BUDGET_ITEMS}
         raise AssertionError(f"unexpected get_json path: {path}")
@@ -89,6 +149,26 @@ class FakeApi:
         path: str,
         data: dict[str, Any] | None = None,
     ) -> tuple[int, Any]:
+        if method == "GET" and path == "/api/v1/households":
+            return 200, {"households": self.households}
+        if (
+            method == "GET"
+            and "/households/" in path
+            and path.endswith("/funds")
+        ):
+            return 200, {"funds": self.funds}
+        if (
+            method == "GET"
+            and "/transactions/" in path
+            and path.endswith("/lines")
+        ):
+            tx_id = urllib.parse.unquote(
+                path.split("/transactions/", 1)[1].split("/", 1)[0]
+            )
+            for operation in self.operations:
+                if str(operation.get("id")) == tx_id:
+                    return 200, {"lines": operation.get("lines") or []}
+            return 200, {"lines": []}
         if method == "GET" and path.startswith("/api/v1/household/personal-fund-carryover?"):
             self.carryover_get_paths.append(path)
             return self.carryover_status, self.carryover_body
@@ -151,31 +231,21 @@ class PersonalFundCarryoverTests(unittest.TestCase):
         allow_non_final: bool = False,
         incoming_carryover_override: dict[str, float] | None = None,
         transactions: list[dict[str, Any]] | None = None,
+        operations: list[dict[str, Any]] | None = None,
         methodology_status: str = "final_closed",
         base_share: float = 1000.0,
-        plan_txns: list[dict[str, Any]] | None = None,
         api: FakeApi | None = None,
     ) -> dict[str, Any]:
         if api is None:
             api = FakeApi(
                 methodology_status=methodology_status,
                 transactions=transactions or [],
+                operations=operations or [],
             )
-        plan_rows = plan_txns or []
-
-        def fetch_side_effect(
-            api: Any, budget_version_id: str, period_start_iso: str, item_id: str
-        ) -> list[dict[str, Any]]:
-            if item_id == "item-cafe":
-                return plan_rows
-            return []
 
         with patch(
             "personal_fund_carryover.compute_household_base_share",
             return_value=_base_share_payload(base_share),
-        ), patch(
-            "personal_fund_carryover._fetch_transactions",
-            side_effect=fetch_side_effect,
         ):
             return compute_personal_fund_carryover(
                 api,
@@ -195,19 +265,11 @@ class PersonalFundCarryoverTests(unittest.TestCase):
 
     def test_t1_happy_path_remainder(self) -> None:
         result = self._run(
-            plan_txns=[
-                {
-                    "transaction_key": "tx1",
-                    "amount": "100.00",
-                    "description": "coffee",
-                }
-            ],
-            transactions=[
-                {
-                    "transaction_key": "tx1",
-                    "provider": "c24",
-                    "description": "coffee",
-                }
+            operations=[
+                _operation(
+                    "tx1",
+                    _op_line("line-cafe", "100.00", "personal-elizarov"),
+                )
             ],
         )
         self.assertTrue(result["ok"])
@@ -219,19 +281,11 @@ class PersonalFundCarryoverTests(unittest.TestCase):
     def test_t3_overrun_discussion(self) -> None:
         result = self._run(
             base_share=100.0,
-            plan_txns=[
-                {
-                    "transaction_key": "tx-big",
-                    "amount": "180.00",
-                    "description": "spend",
-                }
-            ],
-            transactions=[
-                {
-                    "transaction_key": "tx-big",
-                    "provider": "c24",
-                    "description": "spend",
-                }
+            operations=[
+                _operation(
+                    "tx-big",
+                    _op_line("line-big", "180.00", "personal-elizarov"),
+                )
             ],
         )
         aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
@@ -331,8 +385,12 @@ class PersonalFundCarryoverTests(unittest.TestCase):
 
     def test_t8_target_period_available_fund(self) -> None:
         result = self._run(
-            plan_txns=[{"transaction_key": "tx1", "amount": "50.00", "description": "x"}],
-            transactions=[{"transaction_key": "tx1", "provider": "c24", "description": "x"}],
+            operations=[
+                _operation(
+                    "tx1",
+                    _op_line("line-50", "50.00", "personal-elizarov"),
+                )
+            ],
         )
         aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
         # base_share(target) 1000 + carryover 950 (1000 - 50 spend) - 0 advance
@@ -344,8 +402,12 @@ class PersonalFundCarryoverTests(unittest.TestCase):
 
     def test_t12_unattributed_spend_warning(self) -> None:
         result = self._run(
-            plan_txns=[{"transaction_key": "tx-x", "amount": "10.00", "description": "x"}],
-            transactions=[],
+            operations=[
+                _operation(
+                    "tx-x",
+                    _op_line("line-x", "10.00", None),
+                )
+            ],
         )
         self.assertTrue(any(w.startswith("unattributed_spend:") for w in result["warnings"]))
 
@@ -521,6 +583,373 @@ class PersonalFundCarryoverTests(unittest.TestCase):
         aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
         self.assertEqual(aleksey["incoming_carryover"], 42.0)
         self.assertEqual(api.get_run_calls, [])
+
+    def test_fin280_api_passthrough_financing(self) -> None:
+        """FIN-280 T7.1: API body financing fields reach MCP response."""
+        financing_block = {
+            "accounting_period": "202607",
+            "projections": [
+                {
+                    "settlement_id": "s1",
+                    "expense_line_id": "e1",
+                    "financing_fund_id": "personal-elizarov",
+                    "financed_fund_id": "shared",
+                    "amount": "140.00",
+                    "accounting_period": "202607",
+                    "type": "C",
+                    "category": "C0001",
+                    "project": None,
+                }
+            ],
+            "outgoing_by_fund": {"personal-elizarov": 140.0},
+            "incoming_by_fund": {"shared": 140.0},
+            "outgoing_by_member": {"aleksey": 140.0},
+            "outgoing_by_analytics": [
+                {"type": "C", "category": "C0001", "project": None, "amount": 140.0}
+            ],
+            "warnings": [],
+        }
+        api_formula = (
+            "carryover = starting_fund - actual_spend - outgoing_financing; "
+            "available_personal_fund = base_share(target) + carryover"
+        )
+        api = FakeApi(
+            carryover_status=200,
+            carryover_body={
+                "closed_period": "2026-07",
+                "target_period": "2026-08",
+                "formula": api_formula,
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 50.0,
+                        "outgoing_financing": 140.0,
+                        "balance": 810.0,
+                        "carryover": 810.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 1810.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "outgoing_financing": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                ],
+                "fund_financing": financing_block,
+                "warnings": [],
+            },
+        )
+        result = self._run(api=api, dry_run=True)
+        self.assertEqual(result["source"], "api")
+        self.assertEqual(result["formula"], api_formula)
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(aleksey["outgoing_financing"], 140.0)
+        self.assertEqual(result["fund_financing"], financing_block)
+
+    def test_fin280_api_missing_financing_keys(self) -> None:
+        """FIN-280 T7.2: missing HTTP financing keys → zero / empty block."""
+        api = FakeApi(
+            carryover_status=200,
+            carryover_body={
+                "closed_period": "2026-07",
+                "formula": "legacy",
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                ],
+                "warnings": [],
+            },
+        )
+        result = self._run(api=api, dry_run=True)
+        for row in result["partners"]:
+            self.assertEqual(row["outgoing_financing"], 0.0)
+        block = result["fund_financing"]
+        self.assertEqual(block["accounting_period"], "202607")
+        self.assertEqual(block["projections"], [])
+        self.assertEqual(block["outgoing_by_fund"], {})
+        self.assertEqual(block["incoming_by_fund"], {})
+        self.assertEqual(block["outgoing_by_member"], {})
+        self.assertEqual(block["outgoing_by_analytics"], [])
+        self.assertEqual(block["warnings"], [])
+
+    def test_fin280_api_financing_warnings_passthrough(self) -> None:
+        """FIN-280 T7.3: root financing warnings match HTTP texts."""
+        warning = "financing_skipped_missing_fund:settlement-1"
+        api = FakeApi(
+            carryover_status=200,
+            carryover_body={
+                "closed_period": "2026-07",
+                "formula": "x",
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "outgoing_financing": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "outgoing_financing": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                ],
+                "fund_financing": {
+                    "accounting_period": "202607",
+                    "projections": [],
+                    "outgoing_by_fund": {},
+                    "incoming_by_fund": {},
+                    "outgoing_by_member": {},
+                    "outgoing_by_analytics": [],
+                    "warnings": [warning],
+                },
+                "warnings": [warning],
+            },
+        )
+        result = self._run(api=api, dry_run=True)
+        self.assertIn(warning, result["warnings"])
+        self.assertEqual(result["fund_financing"]["warnings"], [warning])
+
+    def test_fin280_mapping_path_empty_financing(self) -> None:
+        """FIN-280 T7.5: mapping fallback uses zeros and empty block."""
+        api = FakeApi(carryover_status=404)
+        result = self._run(api=api, dry_run=True)
+        self.assertEqual(result["source"], "mapping")
+        for row in result["partners"]:
+            self.assertEqual(row["outgoing_financing"], 0.0)
+        block = result["fund_financing"]
+        self.assertEqual(block["accounting_period"], "202607")
+        self.assertEqual(block["projections"], [])
+        self.assertEqual(block["outgoing_by_fund"], {})
+
+
+class Fin324PersonalSpendTests(PersonalFundCarryoverTests):
+    """FIN-324 T1, T2, T4–T8: HTTP 404 local fallback and HTTP 200 passthrough."""
+
+    def test_fin324_t1_null_owner_personal_fund(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "tx-nik",
+                    _op_line("line-nik-40", "40.00", "personal-dubrovskii"),
+                )
+            ],
+        )
+        self.assertEqual(result["source"], "mapping")
+        nikolay = next(p for p in result["partners"] if p["id"] == "nikolay")
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(nikolay["actual_spend"], 40.0)
+        self.assertEqual(aleksey["actual_spend"], 0.0)
+        self.assertFalse(
+            any(w.startswith("unattributed_spend:") for w in result["warnings"])
+        )
+
+    def test_fin324_t2_http_200_passthrough(self) -> None:
+        warning = "unattributed_spend:line-http-1"
+        api = FakeApi(
+            carryover_status=200,
+            carryover_body={
+                "closed_period": "2026-07",
+                "target_period": "2026-08",
+                "partners": [
+                    {
+                        "id": "aleksey",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 55.0,
+                        "balance": 945.0,
+                        "carryover": 945.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 1945.0,
+                    },
+                    {
+                        "id": "nikolay",
+                        "base_share_closed": 1000.0,
+                        "incoming_carryover": 0.0,
+                        "starting_fund": 1000.0,
+                        "actual_spend": 0.0,
+                        "balance": 1000.0,
+                        "carryover": 1000.0,
+                        "overrun_amount": 0.0,
+                        "overrun_requires_discussion": False,
+                        "base_share_target": 1000.0,
+                        "available_personal_fund": 2000.0,
+                    },
+                ],
+                "warnings": [warning],
+            },
+        )
+        with patch(
+            "personal_fund_carryover.compute_personal_spend"
+        ) as mocked_spend:
+            result = self._run(api=api, dry_run=True)
+            mocked_spend.assert_not_called()
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        nikolay = next(p for p in result["partners"] if p["id"] == "nikolay")
+        self.assertEqual(aleksey["actual_spend"], 55.0)
+        self.assertEqual(nikolay["actual_spend"], 0.0)
+        self.assertIn(warning, result["warnings"])
+
+    def test_fin324_t4_shared_fund_excluded(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "tx-shared",
+                    _op_line("line-shared-15", "15.00", "shared"),
+                )
+            ],
+        )
+        for row in result["partners"]:
+            self.assertEqual(row["actual_spend"], 0.0)
+        self.assertNotIn("unattributed_spend:line-shared-15", result["warnings"])
+
+    def test_fin324_t5_before_split_excluded(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "tx-office",
+                    _op_line("line-office-20", "20.00", "office-week"),
+                )
+            ],
+        )
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(aleksey["actual_spend"], 0.0)
+        self.assertNotIn("unattributed_spend:line-office-20", result["warnings"])
+
+    def test_fin324_t6_missing_fund_warning(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "tx-none",
+                    _op_line("line-none-10", "10.00", None),
+                )
+            ],
+        )
+        for row in result["partners"]:
+            self.assertEqual(row["actual_spend"], 0.0)
+        self.assertIn("unattributed_spend:line-none-10", result["warnings"])
+
+    def test_fin324_t7_classification_key_not_required(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "stored-key",
+                    _op_line("line-alek-25", "25.00", "personal-elizarov"),
+                )
+            ],
+        )
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(aleksey["actual_spend"], 25.0)
+        self.assertFalse(
+            any(w.startswith("unattributed_spend:") for w in result["warnings"])
+        )
+
+    def test_fin324_t8_spend_lines_contract(self) -> None:
+        result = self._run(
+            dry_run=True,
+            operations=[
+                _operation(
+                    "tx-a",
+                    _op_line(
+                        "line-b",
+                        "25.00",
+                        "personal-elizarov",
+                        category="  C0001  ",
+                    ),
+                    _op_line(
+                        "line-a",
+                        "30.00",
+                        "personal-elizarov",
+                        category="   ",
+                    ),
+                )
+            ],
+        )
+        aleksey = next(p for p in result["partners"] if p["id"] == "aleksey")
+        self.assertEqual(aleksey["actual_spend"], 55.0)
+        lines = aleksey["spend_lines"]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(
+            [row["line_id"] for row in lines],
+            ["line-a", "line-b"],
+        )
+        for row in lines:
+            self.assertEqual(
+                set(row.keys()),
+                {"line_id", "amount", "fund_id", "category"},
+            )
+        by_id = {row["line_id"]: row for row in lines}
+        self.assertEqual(by_id["line-b"]["category"], "C0001")
+        self.assertIsNone(by_id["line-a"]["category"])
+
+    def test_fin324_t8_no_spend_lines_when_empty(self) -> None:
+        result = self._run(dry_run=True, closed_period="2026-05", operations=[])
+        self.assertEqual(result["source"], "mapping")
+        for row in result["partners"]:
+            self.assertEqual(row["actual_spend"], 0.0)
+            self.assertNotIn("spend_lines", row)
 
 
 if __name__ == "__main__":
