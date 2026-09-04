@@ -32,7 +32,7 @@
 - Не входят модель данных и слой сохранения субъектов учёта (FIN-364).
 - Не входит HTTP API субъектов учёта (FIN-365).
 - Не входит пользовательский интерфейс справочника (FIN-367).
-- Не входят инструменты MCP денежного требования (FIN-355).
+- Не входят инструменты MCP документов выравнивания (FIN-355).
 - Не входит начальное заполнение субъектов учёта для существующих домохозяйств и членов.
 - Не входит один инструмент MCP с перечислением действия вместо отдельных инструментов.
 - Не входит смена термина `accounting subject` на иной в именах инструментов MCP.
@@ -519,7 +519,7 @@ cd mcp-servers/finance-assistant && python -m pytest tests/test_accounting_subje
 
 - [FIN-365 REST API for accounting subjects](https://alexeielizarov.atlassian.net/browse/FIN-365) — HTTP-контракт (блокирует)
 - [FIN-364 Accounting subjects model](https://alexeielizarov.atlassian.net/browse/FIN-364)
-- [FIN-355 MCP tools to originate and settle an obligation](https://alexeielizarov.atlassian.net/browse/FIN-355) — потребитель
+- [FIN-355 MCP tools for clearing documents](https://alexeielizarov.atlassian.net/browse/FIN-355) — потребитель
 - [FIN-367 OpenUI5 UI for accounting subjects](https://alexeielizarov.atlassian.net/browse/FIN-367)
 - [FIN-293 MCP banks](https://alexeielizarov.atlassian.net/browse/FIN-293) — эталон паритета
 - Спецификация HTTP: `FinancePlanningProject/.specs/fin/fin-365-accounting-subjects-api.md`

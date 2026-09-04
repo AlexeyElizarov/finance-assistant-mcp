@@ -104,6 +104,18 @@
 | `create_internal_transfer_matches` | Пакетное создание: `POST …/internal-transfer-matches/batch` (**FIN-351** ✓) |
 | `delete_internal_transfer_match` | Удаление сопоставления: `DELETE …/internal-transfer-matches/{match_id}` (**FIN-351** ✓) |
 | `delete_internal_transfer_matches` | Пакетное удаление: `DELETE …/internal-transfer-matches` (**FIN-351** ✓) |
+| `list_clearing_documents` | Список документов выравнивания: `GET …/clearing-documents` (**FIN-355** ✓) |
+| `get_clearing_document` | Чтение документа: `GET …/clearing-documents/{document_id}` (**FIN-355** ✓) |
+| `create_clearing_document` | Создание документа: `POST …/clearing-documents` (**FIN-355** ✓) |
+| `create_clearing_documents` | Пакетное создание: `POST …/clearing-documents/batch` (**FIN-355** ✓) |
+| `patch_clearing_document` | Частичное обновление заголовка: `PATCH …/clearing-documents/{document_id}` (**FIN-355** ✓) |
+| `delete_clearing_document` | Удаление документа: `DELETE …/clearing-documents/{document_id}` (**FIN-355** ✓) |
+| `delete_clearing_documents` | Пакетное удаление: `DELETE …/clearing-documents` (**FIN-355** ✓) |
+| `create_clearing_document_item` | Создание строки состава: `POST …/clearing-documents/{document_id}/items` (**FIN-355** ✓) |
+| `list_clearing_document_items` | Список строк состава: `GET …/clearing-documents/{document_id}/items` (**FIN-355** ✓) |
+| `get_clearing_document_item` | Чтение строки состава: `GET …/clearing-documents/{document_id}/items/{item_id}` (**FIN-355** ✓) |
+| `patch_clearing_document_item` | Частичное обновление строки: `PATCH …/clearing-documents/{document_id}/items/{item_id}` (**FIN-355** ✓) |
+| `delete_clearing_document_item` | Удаление строки состава: `DELETE …/clearing-documents/{document_id}/items/{item_id}` (**FIN-355** ✓) |
 | `put_transaction_category` | `PATCH …/category`: type+category (**FIN-211** ✓) и/или `expense_owner` set/clear, owner-only OK (**FIN-241** ✓); ответ: `posted_amount` / `posted_currency` (**FIN-347** ✓), `bank_account_id` (**FIN-359** ✓); вход `posted_*` и `bank_account_id` запрещён; legacy facade until **FIN-263** |
 | `upsert_expense_project` | Создать или полностью заменить проект расходов (**FIN-107** ✓) |
 | `update_plan_item` | Изменить plan-item: сумма и/или bounded horizon + recalculate (**FIN-108** ✓, **FIN-110** ✓) |

@@ -145,6 +145,10 @@ _internal_transfer_matches = _load_script_module(
     "internal_transfer_matches",
     "internal_transfer_matches.py",
 )
+_clearing_documents = _load_script_module(
+    "clearing_documents",
+    "clearing_documents.py",
+)
 
 active_budget_version_id = _query_plan_fact.active_budget_version_id
 fetch_month_row = _query_plan_fact.fetch_month_row
@@ -259,6 +263,18 @@ delete_internal_transfer_match = (
 delete_internal_transfer_matches = (
     _internal_transfer_matches.delete_internal_transfer_matches
 )
+list_clearing_documents = _clearing_documents.list_clearing_documents
+get_clearing_document = _clearing_documents.get_clearing_document
+create_clearing_document = _clearing_documents.create_clearing_document
+create_clearing_documents = _clearing_documents.create_clearing_documents
+patch_clearing_document = _clearing_documents.patch_clearing_document
+delete_clearing_document = _clearing_documents.delete_clearing_document
+delete_clearing_documents = _clearing_documents.delete_clearing_documents
+create_clearing_document_item = _clearing_documents.create_clearing_document_item
+list_clearing_document_items = _clearing_documents.list_clearing_document_items
+get_clearing_document_item = _clearing_documents.get_clearing_document_item
+patch_clearing_document_item = _clearing_documents.patch_clearing_document_item
+delete_clearing_document_item = _clearing_documents.delete_clearing_document_item
 
 DEFAULT_PROFILE = os.environ.get("FINANCE_DATA_PROFILE", "prod")
 DEFAULT_BASE = os.environ.get("FINANCE_API_BASE") or None
@@ -1650,6 +1666,77 @@ def _handle_delete_internal_transfer_matches(
     )
 
 
+def _handle_clearing_document(
+    arguments: dict[str, Any],
+    invoke: Any,
+) -> list[types.TextContent]:
+    api, profile, base = _household_master_session(arguments)
+    payload = invoke(api, profile=profile, base=base, arguments=arguments)
+    return _json_text(payload)
+
+
+def _handle_list_clearing_documents(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, list_clearing_documents)
+
+
+def _handle_get_clearing_document(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, get_clearing_document)
+
+
+def _handle_create_clearing_document(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, create_clearing_document)
+
+
+def _handle_create_clearing_documents(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, create_clearing_documents)
+
+
+def _handle_patch_clearing_document(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, patch_clearing_document)
+
+
+def _handle_delete_clearing_document(arguments: dict[str, Any]) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, delete_clearing_document)
+
+
+def _handle_delete_clearing_documents(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, delete_clearing_documents)
+
+
+def _handle_create_clearing_document_item(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, create_clearing_document_item)
+
+
+def _handle_list_clearing_document_items(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, list_clearing_document_items)
+
+
+def _handle_get_clearing_document_item(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, get_clearing_document_item)
+
+
+def _handle_patch_clearing_document_item(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, patch_clearing_document_item)
+
+
+def _handle_delete_clearing_document_item(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    return _handle_clearing_document(arguments, delete_clearing_document_item)
+
+
 def _handle_upsert_expense_project(arguments: dict[str, Any]) -> list[types.TextContent]:
     profile = str(arguments.get("profile") or DEFAULT_PROFILE)
     api, base = get_session(profile, arguments.get("base"))
@@ -2135,6 +2222,67 @@ _ACCOUNTING_SUBJECT_PATCH_ITEM_SCHEMA = {
 _FIN366_TOOL_PROPERTIES = {
     "profile": _FIN366_PROFILE_SCHEMA,
     "base": _FIN366_BASE_SCHEMA,
+}
+
+_FIN355_PROFILE_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "Профиль данных; отсутствие ключа — значение сессии, иначе prod",
+}
+
+_FIN355_BASE_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "URL API; отсутствие ключа — из сессии",
+}
+
+_FIN355_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "debit_credit_indicator": _NULLABLE_STR_SCHEMA,
+        "clearing_amount": _NULLABLE_STR_SCHEMA,
+        "clearing_date": _NULLABLE_STR_SCHEMA,
+        "line_id": _NULLABLE_STR_SCHEMA,
+    },
+    "additionalProperties": False,
+}
+
+_FIN355_CREATE_DOCUMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "document_type": _NULLABLE_STR_SCHEMA,
+        "creditor_subject_id": _NULLABLE_STR_SCHEMA,
+        "debtor_subject_id": _NULLABLE_STR_SCHEMA,
+        "clearing_currency": _NULLABLE_STR_SCHEMA,
+        "items": {
+            "type": ["array", "null"],
+            "items": _FIN355_ITEM_SCHEMA,
+        },
+    },
+    "additionalProperties": False,
+}
+
+_FIN355_SESSION_PROPERTIES = {
+    "profile": _FIN355_PROFILE_SCHEMA,
+    "base": _FIN355_BASE_SCHEMA,
+}
+
+_FIN355_ALLOW_CLOSED_SCHEMA = {
+    "type": "boolean",
+    "description": "Обход закрытого учётного периода",
+}
+
+_FIN355_DOCUMENT_ID_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "Идентификатор документа в пути",
+}
+
+_FIN355_ITEM_ID_SCHEMA = {
+    "type": ["string", "null"],
+    "description": "Идентификатор строки состава в пути",
+}
+
+_FIN355_ITEMS_ARRAY_SCHEMA = {
+    "type": ["array", "null"],
+    "items": _FIN355_ITEM_SCHEMA,
 }
 
 _FIN351_SIDES_ITEM_SCHEMA = {
@@ -4371,6 +4519,221 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="list_clearing_documents",
+            description=(
+                "Список документов выравнивания (FIN-355): "
+                "GET /api/v1/clearing-documents."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "line_id": _NULLABLE_STR_SCHEMA,
+                    "document_type": _NULLABLE_STR_SCHEMA,
+                    "creditor_subject_id": _NULLABLE_STR_SCHEMA,
+                    "debtor_subject_id": _NULLABLE_STR_SCHEMA,
+                    "clearing_currency": _NULLABLE_STR_SCHEMA,
+                    "status": _NULLABLE_STR_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_clearing_document",
+            description=(
+                "Чтение документа выравнивания (FIN-355): "
+                "GET /api/v1/clearing-documents/{document_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_clearing_document",
+            description=(
+                "Создание документа выравнивания (FIN-355): "
+                "POST /api/v1/clearing-documents."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "document_type": _NULLABLE_STR_SCHEMA,
+                    "creditor_subject_id": _NULLABLE_STR_SCHEMA,
+                    "debtor_subject_id": _NULLABLE_STR_SCHEMA,
+                    "clearing_currency": _NULLABLE_STR_SCHEMA,
+                    "items": _FIN355_ITEMS_ARRAY_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_clearing_documents",
+            description=(
+                "Пакетное создание документов выравнивания (FIN-355): "
+                "POST /api/v1/clearing-documents/batch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "clearing_documents": {
+                        "type": ["array", "null"],
+                        "items": _FIN355_CREATE_DOCUMENT_SCHEMA,
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_clearing_document",
+            description=(
+                "Частичное обновление заголовка документа выравнивания (FIN-355): "
+                "PATCH /api/v1/clearing-documents/{document_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "status": _NULLABLE_STR_SCHEMA,
+                    "status_date": _NULLABLE_STR_SCHEMA,
+                    "comment": _NULLABLE_STR_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_clearing_document",
+            description=(
+                "Удаление документа выравнивания (FIN-355): "
+                "DELETE /api/v1/clearing-documents/{document_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_clearing_documents",
+            description=(
+                "Пакетное удаление документов выравнивания (FIN-355): "
+                "DELETE /api/v1/clearing-documents."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "ids": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="create_clearing_document_item",
+            description=(
+                "Создание строки состава документа выравнивания (FIN-355): "
+                "POST /api/v1/clearing-documents/{document_id}/items."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "debit_credit_indicator": _NULLABLE_STR_SCHEMA,
+                    "clearing_amount": _NULLABLE_STR_SCHEMA,
+                    "clearing_date": _NULLABLE_STR_SCHEMA,
+                    "line_id": _NULLABLE_STR_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_clearing_document_items",
+            description=(
+                "Список строк состава документа выравнивания (FIN-355): "
+                "GET /api/v1/clearing-documents/{document_id}/items."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="get_clearing_document_item",
+            description=(
+                "Чтение строки состава документа выравнивания (FIN-355): "
+                "GET /api/v1/clearing-documents/{document_id}/items/{item_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "item_id": _FIN355_ITEM_ID_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="patch_clearing_document_item",
+            description=(
+                "Частичное обновление строки состава документа выравнивания "
+                "(FIN-355): PATCH /api/v1/clearing-documents/{document_id}"
+                "/items/{item_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "item_id": _FIN355_ITEM_ID_SCHEMA,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                    "line_id": _NULLABLE_STR_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="delete_clearing_document_item",
+            description=(
+                "Удаление строки состава документа выравнивания (FIN-355): "
+                "DELETE /api/v1/clearing-documents/{document_id}/items/{item_id}."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    **_FIN355_SESSION_PROPERTIES,
+                    "document_id": _FIN355_DOCUMENT_ID_SCHEMA,
+                    "item_id": _FIN355_ITEM_ID_SCHEMA,
+                    "allow_closed": _FIN355_ALLOW_CLOSED_SCHEMA,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
             name="upsert_expense_project",
             description="Создать или полностью заменить проект расходов (POST/PUT /api/v1/projects; full replace, no partial update).",
             inputSchema={
@@ -4751,6 +5114,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "create_internal_transfer_matches": _handle_create_internal_transfer_matches,
         "delete_internal_transfer_match": _handle_delete_internal_transfer_match,
         "delete_internal_transfer_matches": _handle_delete_internal_transfer_matches,
+        "list_clearing_documents": _handle_list_clearing_documents,
+        "get_clearing_document": _handle_get_clearing_document,
+        "create_clearing_document": _handle_create_clearing_document,
+        "create_clearing_documents": _handle_create_clearing_documents,
+        "patch_clearing_document": _handle_patch_clearing_document,
+        "delete_clearing_document": _handle_delete_clearing_document,
+        "delete_clearing_documents": _handle_delete_clearing_documents,
+        "create_clearing_document_item": _handle_create_clearing_document_item,
+        "list_clearing_document_items": _handle_list_clearing_document_items,
+        "get_clearing_document_item": _handle_get_clearing_document_item,
+        "patch_clearing_document_item": _handle_patch_clearing_document_item,
+        "delete_clearing_document_item": _handle_delete_clearing_document_item,
         "upsert_expense_project": _handle_upsert_expense_project,
         "create_category": _handle_create_category,
         "create_budget_item": _handle_create_budget_item,
