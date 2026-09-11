@@ -407,5 +407,5 @@
 
 ### Методология
 
-* [Канон: погашение расхода](../../../assistant/35-finance-assistant/methodology/accounting/operation-clear.md)
+* [Канон: погашение расхода](../../../assistant/35-finance-assistant/methodology/clearing/expense-settlement.md)
 * [ADR-0006](../../../assistant/35-finance-assistant/adr/0006-operation-expense-clear.md)

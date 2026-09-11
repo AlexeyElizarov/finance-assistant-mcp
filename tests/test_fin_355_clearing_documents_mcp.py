@@ -733,7 +733,6 @@ class Fin355SchemaTests(unittest.TestCase):
     def test_twelve_tools_registered(self) -> None:
         names = {t.name for t in asyncio.run(server.list_tools())}
         self.assertTrue(set(_TOOL_NAMES).issubset(names))
-        self.assertIn("list_internal_transfer_matches", names)
 
     def test_create_schema_allows_both_branches_without_enum(self) -> None:
         schema = _tool_schema("create_clearing_document")

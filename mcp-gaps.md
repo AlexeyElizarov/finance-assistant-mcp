@@ -83,27 +83,15 @@
 | `personal_fund_carryover` | Перенос остатков/перерасхода личного фонда после FINAL close (**FIN-105** ✓); history persist API-first + JSON fallback (**FIN-163** ✓); API path thin-client incoming (**FIN-230** ✓); fund financing fields from HTTP (**FIN-280** ✓); факт трат по фонду позиции, HTTP 200 без второй формулы (**FIN-324** ✓) |
 | `household_receivables` | Журнал займов третьим лицам: register / record_repayment / list / extend / write_off / mark_gift (**FIN-116** ✓) |
 | `money_check_report` | Еженедельный household money check: лимиты, остатки, methodology, C9999/?, advances, receivables (**FIN-104** ✓); fund financing from carryover dry-run (**FIN-280** ✓); факт трат месяца проверки из того же конвейера фонда (**FIN-324** ✓) |
-| `query_transactions` | Выборка транзакций: `period` / `accounting_period`, `category`, `bank_account_id` (в т.ч. `__empty__`), group-by month; rows: `id`, `transaction_type`, `expense_owner`, `fund_id`, `bank_account_id`, `currency`, `budget_currency`, `planned_rate`, `posted_amount`, `posted_currency` (**FIN-27** ✓, **FIN-211** ✓, **FIN-241** ✓, **FIN-256** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓) |
+| `query_transactions` | Выборка транзакций: `period` / `accounting_period`, `category`, `transaction_type` (достаточный одиночный фильтр, в т.ч. `R`), `bank_account_id` (в т.ч. `__empty__`), group-by month; rows: `id`, `transaction_type`, `expense_owner`, `fund_id`, `bank_account_id`, `currency`, `budget_currency`, `planned_rate`, `posted_amount`, `posted_currency`; тип позиции — pass-through HTTP (**FIN-27** ✓, **FIN-211** ✓, **FIN-241** ✓, **FIN-256** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓, **FIN-393** ✓) |
 | `delete_transactions_by_filter` | Maintenance delete по фильтру (**BLG-084** ✓) |
 | `apply_keywords` | Unified/legacy JSON: категории, статьи бюджета, проекты + optional derive (**FIN-16** ✓) |
 | `put_transaction_overrides` | Reconciliation overrides `transaction_key` → `budget_item_id` (**FIN-107** ✓, **FIN-120** ✓) |
-| `put_transaction` | Canonical merge-patch операции: `PATCH /api/v1/transactions/{id}` — classification, project, `fund_id`, `bank_account_id`; omit≠null; ответ: `currency`, `budget_currency`, `planned_rate`, `posted_amount`, `posted_currency`, `bank_account_id`; вход `posted_*` запрещён (**FIN-260** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓) |
-| `put_transactions` | Пакетный canonical merge-patch: последовательные `PATCH /transactions/{id}` с тем же набором полей тела, что у `put_transaction`; общий `allow_closed`; per-item `results` + `summary`; частичный успех (**FIN-265** ✓) |
-| `put_transaction_lines` | Полная замена позиций операции: `PUT …/transactions/{id}/lines`; ответ `budget_amount`; вход `budget_amount` запрещён схемой (**FIN-270** ✓, **FIN-336** ✓) |
-| `get_transaction_lines` | Чтение позиций: `GET …/transactions/{id}/lines`; `budget_amount` из HTTP (**FIN-270** ✓, **FIN-336** ✓) |
-| `get_transaction` | Чтение операции с позициями: `GET …/transactions/{id}`; валютные поля заголовка, `posted_amount` / `posted_currency`, `bank_account_id` и `budget_amount` из HTTP (**FIN-270** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓) |
-| `create_expense_settlement` | Создание погашения расхода: `POST …/expense-settlements` (**FIN-271** ✓) |
-| `get_expense_settlement` | Чтение погашения: `GET …/expense-settlements/{id}` (**FIN-271** ✓) |
-| `patch_expense_settlement` | Изменение суммы погашения: `PATCH …/expense-settlements/{id}` (**FIN-271** ✓) |
-| `delete_expense_settlement` | Удаление погашения: `DELETE …/expense-settlements/{id}` (**FIN-271** ✓) |
-| `list_expense_settlements` | Список погашений позиции: `GET …/expense-settlements?line_id=` (**FIN-271** ✓) |
-| `get_line_settlement_state` | Состояние покрытия позиции: `GET …/transaction-lines/{id}/settlement-state` (**FIN-271** ✓) |
-| `list_internal_transfer_matches` | Список сопоставлений сторон внутреннего перевода: `GET …/internal-transfer-matches` (**FIN-351** ✓) |
-| `get_internal_transfer_match` | Чтение сопоставления: `GET …/internal-transfer-matches/{match_id}` (**FIN-351** ✓) |
-| `create_internal_transfer_match` | Создание сопоставления: `POST …/internal-transfer-matches` (**FIN-351** ✓) |
-| `create_internal_transfer_matches` | Пакетное создание: `POST …/internal-transfer-matches/batch` (**FIN-351** ✓) |
-| `delete_internal_transfer_match` | Удаление сопоставления: `DELETE …/internal-transfer-matches/{match_id}` (**FIN-351** ✓) |
-| `delete_internal_transfer_matches` | Пакетное удаление: `DELETE …/internal-transfer-matches` (**FIN-351** ✓) |
+| `put_transaction` | Canonical merge-patch операции: `PATCH /api/v1/transactions/{id}` — classification, project, `fund_id`, `bank_account_id`; omit≠null; тип позиции включая `R` pass-through HTTP без enum MCP; ответ: `currency`, `budget_currency`, `planned_rate`, `posted_amount`, `posted_currency`, `bank_account_id`; вход `posted_*` запрещён (**FIN-260** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓, **FIN-393** ✓) |
+| `put_transactions` | Пакетный canonical merge-patch: последовательные `PATCH /transactions/{id}` с тем же набором полей тела, что у `put_transaction`; общий `allow_closed`; per-item `results` + `summary`; частичный успех; тип позиции включая `R` pass-through HTTP (**FIN-265** ✓, **FIN-393** ✓) |
+| `put_transaction_lines` | Полная замена позиций операции: `PUT …/transactions/{id}/lines`; `assignment.type` включая `R` pass-through HTTP без enum MCP; ответ `budget_amount`; вход `budget_amount` запрещён схемой (**FIN-270** ✓, **FIN-336** ✓, **FIN-393** ✓) |
+| `get_transaction_lines` | Чтение позиций: `GET …/transactions/{id}/lines`; `budget_amount` из HTTP; тип позиции включая `R` из HTTP (**FIN-270** ✓, **FIN-336** ✓, **FIN-393** ✓) |
+| `get_transaction` | Чтение операции с позициями: `GET …/transactions/{id}`; валютные поля заголовка, `posted_amount` / `posted_currency`, `bank_account_id` и `budget_amount` из HTTP; тип позиции включая `R` из HTTP (**FIN-270** ✓, **FIN-336** ✓, **FIN-347** ✓, **FIN-359** ✓, **FIN-393** ✓) |
 | `list_clearing_documents` | Список документов выравнивания: `GET …/clearing-documents` (**FIN-355** ✓) |
 | `get_clearing_document` | Чтение документа: `GET …/clearing-documents/{document_id}` (**FIN-355** ✓) |
 | `create_clearing_document` | Создание документа: `POST …/clearing-documents` (**FIN-355** ✓) |

@@ -46,7 +46,7 @@ class Row:
 
 @dataclass(frozen=True)
 class QueryArgs:
-    """Normalized query filters for ``GET /api/v1/transactions`` (FIN-27)."""
+    """Normalized query filters for ``GET /api/v1/transactions`` (FIN-27, FIN-393)."""
 
     date_from: str | None = None
     date_to: str | None = None
@@ -59,6 +59,7 @@ class QueryArgs:
     description: str | None = None
     contains: list[str] | None = None
     bank_account_id: str | None = None
+    transaction_type: str | None = None
 
 
 def _normalize_optional_string(value: Any) -> str | None:
@@ -105,9 +106,10 @@ def normalize_query_args(
     description: Any = None,
     contains: Any = None,
     bank_account_id: Any = None,
+    transaction_type: Any = None,
 ) -> QueryArgs:
     """
-    Normalize MCP/CLI transaction query arguments (FIN-27).
+    Normalize MCP/CLI transaction query arguments (FIN-27, FIN-393).
 
     :return: :class:`QueryArgs` with active or unset filters
     """
@@ -123,6 +125,7 @@ def normalize_query_args(
         description=_normalize_optional_string(description),
         contains=_normalize_contains(contains),
         bank_account_id=_normalize_optional_string(bank_account_id),
+        transaction_type=_normalize_optional_string(transaction_type),
     )
 
 
@@ -146,6 +149,7 @@ def _has_active_filter(args: QueryArgs) -> bool:
             args.description,
             args.contains,
             args.bank_account_id,
+            args.transaction_type,
         )
     )
 
@@ -328,6 +332,8 @@ def build_query_path(args: QueryArgs) -> str:
         params["provider"] = args.provider
     if args.bank_account_id:
         params["bank_account_id"] = args.bank_account_id
+    if args.transaction_type:
+        params["transaction_type"] = args.transaction_type
 
     contains = args.contains or []
     if args.description and len(contains) <= 1:

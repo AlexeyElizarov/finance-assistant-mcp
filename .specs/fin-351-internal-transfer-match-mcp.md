@@ -533,6 +533,6 @@ python -m unittest discover -s tests -p "test_fin_351*.py"
 - [Модель данных сопоставления сторон внутреннего перевода (FIN-349)](https://alexeielizarov.atlassian.net/browse/FIN-349)
 - [Канон сопоставления сторон внутреннего перевода (KNOW-49)](https://alexeielizarov.atlassian.net/browse/KNOW-49)
 - [Спецификация HTTP FIN-350](../../../PycharmProjects/FinancePlanningProject/.specs/fin/fin-350-internal-transfer-match-api.md)
-- [Канон: сопоставление сторон внутреннего перевода](../../../assistant/35-finance-assistant/methodology/accounting/operation-transfer-match.md)
-- [Канон: погашение расхода](../../../assistant/35-finance-assistant/methodology/accounting/operation-clear.md)
+- [Канон: сопоставление сторон внутреннего перевода](../../../assistant/35-finance-assistant/methodology/clearing/internal-transfer-match.md)
+- [Канон: погашение расхода](../../../assistant/35-finance-assistant/methodology/clearing/expense-settlement.md)
 - [Реестр решений](fin-351-internal-transfer-match-mcp-decision-log.md)

@@ -137,14 +137,6 @@ _get_transaction = _load_script_module(
     "get_transaction",
     "get_transaction.py",
 )
-_expense_settlements = _load_script_module(
-    "expense_settlements",
-    "expense_settlements.py",
-)
-_internal_transfer_matches = _load_script_module(
-    "internal_transfer_matches",
-    "internal_transfer_matches.py",
-)
 _clearing_documents = _load_script_module(
     "clearing_documents",
     "clearing_documents.py",
@@ -241,28 +233,6 @@ validate_put_transactions_arguments = _put_transactions.validate_batch_arguments
 put_transaction_lines = _put_transaction_lines.put_transaction_lines
 get_transaction_lines = _get_transaction_lines.get_transaction_lines
 get_transaction = _get_transaction.get_transaction
-create_expense_settlement = _expense_settlements.create_expense_settlement
-get_expense_settlement = _expense_settlements.get_expense_settlement
-patch_expense_settlement = _expense_settlements.patch_expense_settlement
-delete_expense_settlement = _expense_settlements.delete_expense_settlement
-list_expense_settlements = _expense_settlements.list_expense_settlements
-get_line_settlement_state = _expense_settlements.get_line_settlement_state
-list_internal_transfer_matches = (
-    _internal_transfer_matches.list_internal_transfer_matches
-)
-get_internal_transfer_match = _internal_transfer_matches.get_internal_transfer_match
-create_internal_transfer_match = (
-    _internal_transfer_matches.create_internal_transfer_match
-)
-create_internal_transfer_matches = (
-    _internal_transfer_matches.create_internal_transfer_matches
-)
-delete_internal_transfer_match = (
-    _internal_transfer_matches.delete_internal_transfer_match
-)
-delete_internal_transfer_matches = (
-    _internal_transfer_matches.delete_internal_transfer_matches
-)
 list_clearing_documents = _clearing_documents.list_clearing_documents
 get_clearing_document = _clearing_documents.get_clearing_document
 create_clearing_document = _clearing_documents.create_clearing_document
@@ -1509,163 +1479,6 @@ def _handle_get_transaction(arguments: dict[str, Any]) -> list[types.TextContent
     return _json_text(payload)
 
 
-def _handle_create_expense_settlement(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = create_expense_settlement(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_get_expense_settlement(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = get_expense_settlement(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_patch_expense_settlement(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = patch_expense_settlement(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_delete_expense_settlement(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = delete_expense_settlement(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_list_expense_settlements(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = list_expense_settlements(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_get_line_settlement_state(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    profile = str(arguments.get("profile") or DEFAULT_PROFILE)
-    api, base = get_session(profile, arguments.get("base"))
-    payload = get_line_settlement_state(
-        api,
-        profile=profile,
-        base=base,
-        arguments=arguments,
-    )
-    return _json_text(payload)
-
-
-def _handle_internal_transfer_match(
-    arguments: dict[str, Any],
-    validate: Any,
-    invoke: Any,
-) -> list[types.TextContent]:
-    profile, base_arg = _internal_transfer_matches.prepare_request(
-        arguments, validate
-    )
-    api, base = get_session(profile, base_arg)
-    payload = invoke(api, profile=profile, base=base, arguments=arguments)
-    return _json_text(payload)
-
-
-def _handle_list_internal_transfer_matches(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_list_arguments,
-        list_internal_transfer_matches,
-    )
-
-
-def _handle_get_internal_transfer_match(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_match_id,
-        get_internal_transfer_match,
-    )
-
-
-def _handle_create_internal_transfer_match(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_noop,
-        create_internal_transfer_match,
-    )
-
-
-def _handle_create_internal_transfer_matches(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_batch_create,
-        create_internal_transfer_matches,
-    )
-
-
-def _handle_delete_internal_transfer_match(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_match_id,
-        delete_internal_transfer_match,
-    )
-
-
-def _handle_delete_internal_transfer_matches(
-    arguments: dict[str, Any],
-) -> list[types.TextContent]:
-    return _handle_internal_transfer_match(
-        arguments,
-        _internal_transfer_matches.validate_batch_delete,
-        delete_internal_transfer_matches,
-    )
-
-
 def _handle_clearing_document(
     arguments: dict[str, Any],
     invoke: Any,
@@ -1967,6 +1780,7 @@ def _handle_query_transactions(arguments: dict[str, Any]) -> list[types.TextCont
         description=arguments.get("description"),
         contains=arguments.get("contains"),
         bank_account_id=arguments.get("bank_account_id"),
+        transaction_type=arguments.get("transaction_type"),
     )
     rows = fetch_rows(api, args)
     group_by = arguments.get("group_by")
@@ -2185,11 +1999,6 @@ _IDENTIFIER_PATCH_ITEM_SCHEMA = {
     "additionalProperties": False,
 }
 
-_FIN351_PROFILE_SCHEMA = {
-    "type": "string",
-    "description": "Профиль данных; отсутствие ключа означает prod",
-}
-
 _FIN366_PROFILE_SCHEMA = {
     "type": ["string", "null"],
     "description": "Профиль данных; отсутствие ключа — prod",
@@ -2283,16 +2092,6 @@ _FIN355_ITEM_ID_SCHEMA = {
 _FIN355_ITEMS_ARRAY_SCHEMA = {
     "type": ["array", "null"],
     "items": _FIN355_ITEM_SCHEMA,
-}
-
-_FIN351_SIDES_ITEM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "debit_line_ids": {"type": "array", "items": {"type": "string"}},
-        "credit_line_ids": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["debit_line_ids", "credit_line_ids"],
-    "additionalProperties": False,
 }
 
 DELETE_FILTER_SCHEMA = {
@@ -3948,10 +3747,11 @@ async def list_tools() -> list[types.Tool]:
             name="query_transactions",
             description=(
                 "Выборка транзакций (GET /api/v1/transactions) с фильтрами учётного периода, "
-                "категории, bank_account_id и group-by month. Неагрегированные rows: id, "
+                "категории, transaction_type, bank_account_id и group-by month. "
+                "Неагрегированные rows: id, "
                 "transaction_type, expense_owner, fund_id, bank_account_id, currency, "
                 "budget_currency, planned_rate, posted_amount, posted_currency "
-                "(FIN-211 / FIN-241 / FIN-336 / FIN-347 / FIN-359)."
+                "(FIN-211 / FIN-241 / FIN-336 / FIN-347 / FIN-359 / FIN-393)."
             ),
             inputSchema={
                 "type": "object",
@@ -3978,6 +3778,13 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Alias для category",
                     },
                     "provider": {"type": "string"},
+                    "transaction_type": {
+                        "type": "string",
+                        "description": (
+                            "Фильтр по типу первой позиции; активный фильтр сам по себе "
+                            "достаточен (FIN-393); значение проверяет HTTP"
+                        ),
+                    },
                     "bank_account_id": {
                         "type": "string",
                         "description": (
@@ -4088,6 +3895,7 @@ async def list_tools() -> list[types.Tool]:
                 "Поля тела (omit≠null): transaction_category, category_source, "
                 "reconciliation_note, transaction_type, expense_owner, project, "
                 "project_source, fund_id, bank_account_id. Хотя бы одно поле тела обязательно. "
+                "transaction_type передаётся в HTTP без словаря типов MCP (FIN-393). "
                 "Ответ включает posted_amount / posted_currency (FIN-347) и "
                 "bank_account_id (FIN-359); posted_* во входе не принимаются."
             ),
@@ -4115,7 +3923,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Пакетный canonical merge-patch операций (FIN-265): "
                 "последовательные PATCH /api/v1/transactions/{id} с тем же набором "
-                "полей тела, что у put_transaction. Общий allow_closed на пакет. "
+                "полей тела, что у put_transaction, включая pass-through типа (FIN-393). "
+                "Общий allow_closed на пакет. "
                 "Частичный успех: ошибка элемента не останавливает остальные; "
                 "верхний ok:true при обработанном пакете."
             ),
@@ -4147,6 +3956,7 @@ async def list_tools() -> list[types.Tool]:
                 "Полная замена набора позиций операции (FIN-270 / FIN-272): "
                 "PUT /api/v1/transactions/{id}/lines. "
                 "Тело: lines[] с line_no, amount, assignment; опционально id позиции. "
+                "assignment.type передаётся в HTTP без словаря типов MCP (FIN-393). "
                 "Разделение = N>1 позиций при неизменной сумме заголовка."
             ),
             inputSchema={
@@ -4199,7 +4009,8 @@ async def list_tools() -> list[types.Tool]:
             name="get_transaction_lines",
             description=(
                 "Чтение позиций операции (FIN-270 / FIN-272): "
-                "GET /api/v1/transactions/{id}/lines."
+                "GET /api/v1/transactions/{id}/lines. "
+                "Тип позиции из HTTP без словаря типов MCP (FIN-393)."
             ),
             inputSchema={
                 "type": "object",
@@ -4219,7 +4030,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Чтение операции по id вместе с позициями (FIN-270 / FIN-272): "
                 "GET /api/v1/transactions/{id}. "
-                "Заголовок включает bank_account_id (FIN-359)."
+                "Заголовок включает bank_account_id (FIN-359). "
+                "Тип позиции из HTTP без словаря типов MCP (FIN-393)."
             ),
             inputSchema={
                 "type": "object",
@@ -4232,290 +4044,6 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["transaction_id"],
-            },
-        ),
-        types.Tool(
-            name="create_expense_settlement",
-            description=(
-                "Создание погашения расхода (FIN-271 / FIN-273): "
-                "POST /api/v1/expense-settlements."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "compensating_line_id": {
-                        "type": "string",
-                        "description": "Позиция компенсирующего зачисления",
-                    },
-                    "expense_line_id": {
-                        "type": "string",
-                        "description": "Покрываемая позиция расхода",
-                    },
-                    "amount": {
-                        "type": "string",
-                        "description": "Абсолютная сумма погашения",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Bypass closed-period guard (default false)",
-                    },
-                },
-                "required": [
-                    "compensating_line_id",
-                    "expense_line_id",
-                    "amount",
-                ],
-            },
-        ),
-        types.Tool(
-            name="get_expense_settlement",
-            description=(
-                "Чтение погашения расхода по id (FIN-271 / FIN-273): "
-                "GET /api/v1/expense-settlements/{id}."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "settlement_id": {
-                        "type": "string",
-                        "description": "Идентификатор погашения",
-                    },
-                },
-                "required": ["settlement_id"],
-            },
-        ),
-        types.Tool(
-            name="patch_expense_settlement",
-            description=(
-                "Изменение суммы погашения расхода (FIN-271 / FIN-273): "
-                "PATCH /api/v1/expense-settlements/{id}."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "settlement_id": {
-                        "type": "string",
-                        "description": "Идентификатор погашения",
-                    },
-                    "amount": {
-                        "type": "string",
-                        "description": "Новая абсолютная сумма погашения",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Bypass closed-period guard (default false)",
-                    },
-                },
-                "required": ["settlement_id", "amount"],
-            },
-        ),
-        types.Tool(
-            name="delete_expense_settlement",
-            description=(
-                "Удаление погашения расхода (FIN-271 / FIN-273): "
-                "DELETE /api/v1/expense-settlements/{id}."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "settlement_id": {
-                        "type": "string",
-                        "description": "Идентификатор погашения",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Bypass closed-period guard (default false)",
-                    },
-                },
-                "required": ["settlement_id"],
-            },
-        ),
-        types.Tool(
-            name="list_expense_settlements",
-            description=(
-                "Список погашений по позиции (FIN-271 / FIN-273): "
-                "GET /api/v1/expense-settlements?line_id=…"
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "line_id": {
-                        "type": "string",
-                        "description": "Идентификатор позиции (любая сторона связи)",
-                    },
-                },
-                "required": ["line_id"],
-            },
-        ),
-        types.Tool(
-            name="get_line_settlement_state",
-            description=(
-                "Состояние покрытия позиции (FIN-271 / FIN-273): "
-                "GET /api/v1/transaction-lines/{line_id}/settlement-state."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "line_id": {
-                        "type": "string",
-                        "description": "Идентификатор позиции",
-                    },
-                },
-                "required": ["line_id"],
-            },
-        ),
-        types.Tool(
-            name="list_internal_transfer_matches",
-            description=(
-                "Список сопоставлений сторон внутреннего перевода (FIN-351): "
-                "GET /api/v1/internal-transfer-matches."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "line_id": {
-                        "type": "string",
-                        "description": "Фильтр по позиции; отсутствие ключа — список профиля",
-                    },
-                },
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="get_internal_transfer_match",
-            description=(
-                "Чтение сопоставления сторон внутреннего перевода (FIN-351): "
-                "GET /api/v1/internal-transfer-matches/{match_id}."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "match_id": {
-                        "type": "string",
-                        "description": "Идентификатор сопоставления в пути",
-                    },
-                },
-                "required": ["match_id"],
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="create_internal_transfer_match",
-            description=(
-                "Создание сопоставления сторон внутреннего перевода (FIN-351): "
-                "POST /api/v1/internal-transfer-matches."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "debit_line_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Идентификаторы позиций стороны списания",
-                    },
-                    "credit_line_ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Идентификаторы позиций стороны зачисления",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Обход закрытого учётного периода",
-                    },
-                },
-                "required": ["debit_line_ids", "credit_line_ids"],
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="create_internal_transfer_matches",
-            description=(
-                "Пакетное создание сопоставлений сторон внутреннего перевода "
-                "(FIN-351): POST /api/v1/internal-transfer-matches/batch."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "internal_transfer_matches": {
-                        "type": "array",
-                        "items": _FIN351_SIDES_ITEM_SCHEMA,
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Обход закрытого учётного периода на весь пакет",
-                    },
-                },
-                "required": ["internal_transfer_matches"],
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="delete_internal_transfer_match",
-            description=(
-                "Удаление сопоставления сторон внутреннего перевода (FIN-351): "
-                "DELETE /api/v1/internal-transfer-matches/{match_id}."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "match_id": {
-                        "type": "string",
-                        "description": "Идентификатор сопоставления в пути",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Обход закрытого учётного периода",
-                    },
-                },
-                "required": ["match_id"],
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="delete_internal_transfer_matches",
-            description=(
-                "Пакетное удаление сопоставлений сторон внутреннего перевода "
-                "(FIN-351): DELETE /api/v1/internal-transfer-matches."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "profile": _FIN351_PROFILE_SCHEMA,
-                    "base": BASE_SCHEMA,
-                    "ids": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Идентификаторы сопоставлений",
-                    },
-                    "allow_closed": {
-                        "type": "boolean",
-                        "description": "Обход закрытого учётного периода на весь пакет",
-                    },
-                },
-                "required": ["ids"],
-                "additionalProperties": False,
             },
         ),
         types.Tool(
@@ -5102,18 +4630,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         "put_transaction_lines": _handle_put_transaction_lines,
         "get_transaction_lines": _handle_get_transaction_lines,
         "get_transaction": _handle_get_transaction,
-        "create_expense_settlement": _handle_create_expense_settlement,
-        "get_expense_settlement": _handle_get_expense_settlement,
-        "patch_expense_settlement": _handle_patch_expense_settlement,
-        "delete_expense_settlement": _handle_delete_expense_settlement,
-        "list_expense_settlements": _handle_list_expense_settlements,
-        "get_line_settlement_state": _handle_get_line_settlement_state,
-        "list_internal_transfer_matches": _handle_list_internal_transfer_matches,
-        "get_internal_transfer_match": _handle_get_internal_transfer_match,
-        "create_internal_transfer_match": _handle_create_internal_transfer_match,
-        "create_internal_transfer_matches": _handle_create_internal_transfer_matches,
-        "delete_internal_transfer_match": _handle_delete_internal_transfer_match,
-        "delete_internal_transfer_matches": _handle_delete_internal_transfer_matches,
         "list_clearing_documents": _handle_list_clearing_documents,
         "get_clearing_document": _handle_get_clearing_document,
         "create_clearing_document": _handle_create_clearing_document,
